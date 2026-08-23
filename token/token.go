@@ -84,6 +84,7 @@ var typeNames = map[Type]string{
 	ISVOID:     "ISVOID",
 	LET:        "LET",
 	LOOP:       "LOOP",
+	POOL:       "POOL",
 	THEN:       "THEN",
 	WHILE:      "WHILE",
 	CASE:       "CASE",
