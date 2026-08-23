@@ -1,6 +1,9 @@
 package lexer
 
-import "cool/token"
+import (
+	"cool/token"
+	"strings"
+)
 
 type Lexer struct {
 	input  string
@@ -138,6 +141,16 @@ func (l *Lexer) NextToken() token.Token {
 		} else {
 			tok.Type = token.EQ
 		}
+	case '"':
+		content, errMsg := l.readString()
+		if errMsg != "" {
+			tok.Type = token.ILLEGAL
+			tok.Literal = errMsg
+			return tok
+		}
+		tok.Type = token.STR_CONST
+		tok.Literal = content
+		return tok
 	default:
 		switch {
 		case isDigit(ch):
@@ -217,4 +230,54 @@ func (l *Lexer) readIdentifier() {
 	for l.pos < len(l.input) && (isLetter(l.input[l.pos]) || isDigit(l.input[l.pos]) || l.input[l.pos] == '_') {
 		l.readChar()
 	}
+}
+
+func (l *Lexer) readString() (content, errMsg string) {
+	var sb strings.Builder
+
+	for l.pos < len(l.input) {
+		ch := l.input[l.pos]
+
+		switch {
+		case ch == '"':
+			l.readChar()
+			return sb.String(), ""
+
+		case ch == '\\':
+			l.readChar()
+			if l.pos >= len(l.input) {
+				return "", "string não fechada (barra solta no fim do arquivo)"
+			}
+
+			switch esc := l.input[l.pos]; esc {
+			case 'b':
+				sb.WriteByte('\b')
+			case 't':
+				sb.WriteByte('\t')
+			case 'n':
+				sb.WriteByte('\n')
+			case 'f':
+				sb.WriteByte('\f')
+			default:
+				sb.WriteByte(esc)
+			}
+			l.readChar()
+
+		case ch == '\n':
+			return "", "newline cru dentro de string"
+
+		case ch == 0:
+			return "", "caractere nulo (\\0) dentro de string"
+
+		default:
+			sb.WriteByte(ch)
+			l.readChar()
+		}
+
+		if sb.Len() > 1024 {
+			return "", "string exced o limite de 1024 caracteres"
+		}
+	}
+
+	return "", "string não fechada (EOF antes das aspas finais)"
 }
