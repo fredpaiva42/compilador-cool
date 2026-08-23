@@ -77,6 +77,7 @@ func (l *Lexer) NextToken() token.Token {
 	startLine, startCol := l.line, l.column
 
 	ch := l.input[l.pos]
+	next := l.peekChar()
 	l.readChar()
 	
 	tok := token.Token{
@@ -115,8 +116,28 @@ func (l *Lexer) NextToken() token.Token {
 		tok.Type = token.DIV
 	case '~':
 		tok.Type = token.NEG
+	case '<':
+		switch next {
+		case '-':
+			l.readChar()
+			tok.Type = token.ASSIGN
+			tok.Literal = "<-"
+		case '=':
+			l.readChar()
+			tok.Type = token.LE
+			tok.Literal = "<="
+		default:
+			tok.Type = token.LT
+		}
+	case '=':
+		if next == '>' {
+			l.readChar()
+			tok.Type = token.DARROW
+			tok.Literal = "=>"
+		} else {
+			tok.Type = token.EQ
+		}
 	default:
-		// permanece ILLEGAL: '<', '=', dígitos e letras chegam nos passos 6–8
 	}
 
 	return tok
