@@ -1,3 +1,3 @@
-(* exercita todos os simbolos de um caractere *)
+(* testa todos os simbolos de um caractere *)
 { } ( ) ; : , . @
 + * / ~ -

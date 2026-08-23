@@ -75,6 +75,7 @@ func (l *Lexer) NextToken() token.Token {
 	}
 
 	startLine, startCol := l.line, l.column
+	startPos := l.pos
 
 	ch := l.input[l.pos]
 	next := l.peekChar()
@@ -138,6 +139,13 @@ func (l *Lexer) NextToken() token.Token {
 			tok.Type = token.EQ
 		}
 	default:
+		switch {
+		case isDigit(ch):
+			l.readNumber()
+			tok.Type = token.INT_CONST
+			tok.Literal = l.input[startPos:l.pos]
+		default:
+		}
 	}
 
 	return tok
@@ -178,4 +186,14 @@ func (l *Lexer) skipBlockComment() bool {
 
 	return false
 
+}
+
+func isDigit(ch byte) bool {
+	return '0' <= ch && ch <= '9'
+}
+
+func (l *Lexer) readNumber() {
+	for l.pos < len(l.input) && isDigit(l.input[l.pos]){
+		l.readChar()
+	}
 }
