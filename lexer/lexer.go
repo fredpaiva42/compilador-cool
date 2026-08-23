@@ -78,8 +78,48 @@ func (l *Lexer) NextToken() token.Token {
 
 	ch := l.input[l.pos]
 	l.readChar()
-	return token.Token{Type: token.ILLEGAL, Literal: string(ch),
-		Line: startLine, Column: startCol}
+	
+	tok := token.Token{
+		Type: token.ILLEGAL,
+		Literal: string(ch),
+		Line: startLine,
+		Column: startCol,
+	}
+
+	switch ch {
+	case '(':
+		tok.Type = token.LPAREN
+	case ')':
+		tok.Type = token.RPAREN
+	case '{':
+		tok.Type = token.LBRACE
+	case '}':
+		tok.Type = token.RBRACE
+	case ':':
+		tok.Type = token.COLON
+	case ';':
+		tok.Type = token.SEMI
+	case '.':
+		tok.Type = token.DOT
+	case ',':
+		tok.Type = token.COMMA
+	case '@':
+		tok.Type = token.AT
+	case '+':
+		tok.Type = token.PLUS
+	case '-':
+		tok.Type = token.MINUS
+	case '*':
+		tok.Type = token.MULT
+	case '/':
+		tok.Type = token.DIV
+	case '~':
+		tok.Type = token.NEG
+	default:
+		// permanece ILLEGAL: '<', '=', dígitos e letras chegam nos passos 6–8
+	}
+
+	return tok
 }
 
 func (l *Lexer) skipLineComment() {
