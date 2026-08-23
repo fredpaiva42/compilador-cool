@@ -1,6 +1,9 @@
 package token
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 type Type int
 
@@ -115,4 +118,41 @@ func (t Type) String() string {
 	}
 
 	return fmt.Sprintf("Type(%d)", int(t))
+}
+
+var keywords = map[string]Type{
+	"class":    CLASS,
+	"else":     ELSE,
+	"fi":       FI,
+	"if":       IF,
+	"in":       IN,
+	"inherits": INHERITS,
+	"isvoid":   ISVOID,
+	"let":      LET,
+	"loop":     LOOP,
+	"pool":     POOL,
+	"then":     THEN,
+	"while":    WHILE,
+	"case":     CASE,
+	"esac":     ESAC,
+	"new":      NEW,
+	"of":       OF,
+	"not":      NOT,
+	"true":     BOOL_CONST,
+	"false":    BOOL_CONST,
+}
+
+func LookupIdent(ident string) (Type, bool) {
+	t, ok := keywords[strings.ToLower(ident)]
+	if !ok {
+		return t, false
+	}
+
+	if t == BOOL_CONST {
+		if ident[0] != 't' && ident[0] != 'f' {
+			return t, false
+		}
+	}
+
+	return t, true
 }

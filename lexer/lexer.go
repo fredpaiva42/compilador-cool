@@ -80,12 +80,12 @@ func (l *Lexer) NextToken() token.Token {
 	ch := l.input[l.pos]
 	next := l.peekChar()
 	l.readChar()
-	
+
 	tok := token.Token{
-		Type: token.ILLEGAL,
+		Type:    token.ILLEGAL,
 		Literal: string(ch),
-		Line: startLine,
-		Column: startCol,
+		Line:    startLine,
+		Column:  startCol,
 	}
 
 	switch ch {
@@ -144,7 +144,18 @@ func (l *Lexer) NextToken() token.Token {
 			l.readNumber()
 			tok.Type = token.INT_CONST
 			tok.Literal = l.input[startPos:l.pos]
-		default:
+		case isLetter(ch):
+			l.readIdentifier()
+			lit := l.input[startPos:l.pos]
+			tok.Literal = lit
+
+			if t, ok := token.LookupIdent(lit); ok {
+				tok.Type = t // keyword ou booleano
+			} else if 'A' <= ch && ch <= 'Z' {
+				tok.Type = token.TYPEID
+			} else {
+				tok.Type = token.OBJECTID
+			}
 		}
 	}
 
@@ -193,7 +204,17 @@ func isDigit(ch byte) bool {
 }
 
 func (l *Lexer) readNumber() {
-	for l.pos < len(l.input) && isDigit(l.input[l.pos]){
+	for l.pos < len(l.input) && isDigit(l.input[l.pos]) {
+		l.readChar()
+	}
+}
+
+func isLetter(ch byte) bool {
+	return ('a' <= ch && ch <= 'z') || ('A' <= ch && ch <= 'Z')
+}
+
+func (l *Lexer) readIdentifier() {
+	for l.pos < len(l.input) && (isLetter(l.input[l.pos]) || isDigit(l.input[l.pos]) || l.input[l.pos] == '_') {
 		l.readChar()
 	}
 }
