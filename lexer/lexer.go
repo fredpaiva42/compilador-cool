@@ -42,16 +42,79 @@ func (l *Lexer) skipWhitespace() {
 }
 
 func (l *Lexer) NextToken() token.Token {
-	l.skipWhitespace()
+
+	for {
+		l.skipWhitespace()
+
+		if l.pos >= len(l.input) {
+			return token.Token{Type: token.EOF, Line: l.line, Column: l.column}
+		}
+
+		ch := l.input[l.pos]
+
+		if ch == '-' && l.peekChar() == '-' {
+			l.skipLineComment()
+			continue
+		}
+
+		if ch == '(' && l.peekChar() == '*' {
+			errLine, errCol := l.line, l.column
+
+			if !l.skipBlockComment() {
+				return token.Token{
+					Type:    token.ILLEGAL,
+					Literal: "comentário (* não fechado",
+					Line:    errLine,
+					Column:  errCol,
+				}
+			}
+			continue
+		}
+
+		break
+	}
 
 	startLine, startCol := l.line, l.column
-
-	if l.pos >= len(l.input) {
-		return token.Token{Type: token.EOF, Line: startLine, Column: startCol}
-	}
 
 	ch := l.input[l.pos]
 	l.readChar()
 	return token.Token{Type: token.ILLEGAL, Literal: string(ch),
 		Line: startLine, Column: startCol}
+}
+
+func (l *Lexer) skipLineComment() {
+	for l.pos < len(l.input) && l.input[l.pos] != '\n' {
+		l.readChar()
+	}
+}
+
+func (l *Lexer) skipBlockComment() bool {
+	depth := 0
+
+	for l.pos < len(l.input) {
+		ch := l.input[l.pos]
+		next := l.peekChar()
+
+		if ch == '(' && next == '*' {
+			depth++
+			l.readChar()
+			l.readChar()
+			continue
+		}
+
+		if ch == '*' && next == ')' {
+			depth--
+			l.readChar()
+			l.readChar()
+			if depth == 0 {
+				return true
+			}
+			continue
+		}
+
+		l.readChar()
+	}
+
+	return false
+
 }
