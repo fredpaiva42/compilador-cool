@@ -39,8 +39,10 @@ func main() {
 		}
 	}
 
-	for _, tok := range toks {
-		fmt.Printf("%d:%d\t%-10s\t%q\n", tok.Line, tok.Column, tok.Type, tok.Literal)
+	if !withAST {
+		for _, tok := range toks {
+			fmt.Printf("%d:%d	%-10s	%q\n", tok.Line, tok.Column, tok.Type, tok.Literal)
+		}
 	}
 
 	for _, tok := range toks {
