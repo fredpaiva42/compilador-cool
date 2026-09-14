@@ -3,6 +3,7 @@ package parser
 import (
 	"cool/token"
 	"fmt"
+	"strings"
 )
 
 type ParseError struct {
@@ -18,6 +19,7 @@ func (e *ParseError) Error() string {
 type Parser struct {
 	toks []token.Token
 	pos  int
+	errs []error
 }
 
 func New(toks []token.Token) *Parser {
@@ -64,4 +66,42 @@ func (p *Parser) expect(t token.Type) (token.Token, error) {
 	}
 	p.pos++
 	return cur, nil
+}
+
+type ParseErrors struct{ Errs []error }
+
+func (e *ParseErrors) Error() string {
+	msgs := make([]string, len(e.Errs))
+	for i, err := range e.Errs {
+		msgs[i] = err.Error()
+	}
+	return strings.Join(msgs, "\n")
+}
+
+func (p *Parser) syncTo(sync ...token.Type) {
+loop:
+	for !p.atEnd() {
+		for _, t := range sync {
+			if p.check(t) {
+				break loop
+			}
+		}
+		p.next()
+	}
+}
+
+func (p *Parser) syncMethodBody() bool {
+	depth := 0
+	for !p.atEnd() {
+		if p.check(token.RBRACE) && depth == 0 {
+			return true
+		}
+		if p.check(token.LBRACE) {
+			depth++
+		} else if p.check(token.RBRACE) {
+			depth--
+		}
+		p.next()
+	}
+	return false
 }

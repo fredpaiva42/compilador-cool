@@ -104,7 +104,23 @@ func (p *Parser) parseMethodRest(nameTok token.Token) (*ast.Method, error) {
 
 	body, err := p.parseExpr()
 	if err != nil {
-		return nil, err
+
+		if !p.syncMethodBody() {
+			return nil, err
+		}
+		p.errs = append(p.errs, err)
+		p.next()
+		if _, serr := p.expect(token.SEMI); serr != nil {
+			p.errs = append(p.errs, serr)
+		}
+		return &ast.Method{
+			Name:       nameTok.Literal,
+			Formals:    formals,
+			ReturnType: retTok.Literal,
+			Body:       nil,
+			Line:       nameTok.Line,
+			Column:     nameTok.Column,
+		}, nil
 	}
 
 	if _, err := p.expect(token.RBRACE); err != nil {

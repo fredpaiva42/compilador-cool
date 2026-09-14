@@ -68,11 +68,16 @@ func (p *Parser) parseBlock() (ast.Expr, error) {
 			return nil, &ParseError{Line: cur.Line, Column: cur.Column, Msg: "fim de arquivo dentro de bloco: faltou '}'"}
 		}
 		e, err := p.parseExpr()
-		if err != nil {
-			return nil, err
+		if err == nil {
+			_, err = p.expect(token.SEMI)
 		}
-		if _, err := p.expect(token.SEMI); err != nil {
-			return nil, err
+		if err != nil {
+			p.errs = append(p.errs, err)
+			p.syncTo(token.SEMI, token.RBRACE)
+			if p.check(token.SEMI) {
+				p.next()
+			}
+			continue
 		}
 		exprs = append(exprs, e)
 	}
