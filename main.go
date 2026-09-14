@@ -4,18 +4,26 @@ import (
 	"fmt"
 	"os"
 
+	"cool/ast"
 	"cool/lexer"
 	"cool/parser"
 	"cool/token"
 )
 
 func main() {
-	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "uso: go run . <arquivo.cl>")
+	withAST := false
+	fileArg := ""
+	if len(os.Args) >= 3 && os.Args[1] == "--ast" {
+		withAST = true
+		fileArg = os.Args[2]
+	} else if len(os.Args) >= 2 {
+		fileArg = os.Args[1]
+	} else {
+		fmt.Fprintln(os.Stderr, "uso: go run . [--ast] <arquivo.cl>")
 		os.Exit(1)
 	}
 
-	src, err := os.ReadFile(os.Args[1])
+	src, err := os.ReadFile(fileArg)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "erro ao ler arquivo: %v\n", err)
 		os.Exit(1)
@@ -47,5 +55,10 @@ func main() {
 		fmt.Fprintf(os.Stderr, "erro sintatico: %v\n", err)
 		os.Exit(1)
 	}
+
+	if withAST {
+		fmt.Println(ast.DumpProgram(prog))
+	}
+
 	fmt.Fprintf(os.Stderr, "OK: %d classe(s)\n", len(prog.Classes))
 }
