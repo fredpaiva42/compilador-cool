@@ -162,3 +162,20 @@ type Let struct {
 }
 
 func (*Let) exprNode() {}
+
+type CaseBranch struct {
+	Name   string
+	Type   string
+	Body   Expr
+	Line   int
+	Column int
+}
+
+type Case struct {
+	Subject  Expr
+	Branches []*CaseBranch
+	Line     int
+	Column   int
+}
+
+func (*Case) exprNode() {}

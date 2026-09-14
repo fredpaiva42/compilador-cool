@@ -30,6 +30,8 @@ func (p *Parser) parseExpr() (ast.Expr, error) {
 		return p.parseBlock()
 	case token.LET:
 		return p.parseLet()
+	case token.CASE:
+		return p.parseCase()
 	default:
 		return p.parseDispatch()
 	}

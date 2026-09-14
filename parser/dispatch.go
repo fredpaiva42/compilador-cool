@@ -111,6 +111,8 @@ func recvPos(e ast.Expr) (int, int) {
 		return n.Line, n.Column
 	case *ast.StaticDispatch:
 		return n.Line, n.Column
+	case *ast.Case:
+		return n.Line, n.Column
 	default:
 		return 0, 0
 	}
