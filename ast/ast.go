@@ -32,7 +32,18 @@ type Attribute struct {
 	Column  int
 }
 
+type Method struct {
+	Name       string
+	Formals    []*Formal
+	ReturnType string
+	Body       Expr
+	Line       int
+	Column     int
+}
+
 func (*Attribute) featureNode() {}
+
+func (*Method) featureNode() {}
 
 type Expr interface {
 	exprNode()

@@ -49,6 +49,22 @@ func (p *Parser) parseClass() (*ast.Class, error) {
 		return nil, err
 	}
 
+	var feats []ast.Feature
+	for !p.check(token.RBRACE) {
+		if p.atEnd() {
+			cur := p.peek()
+			return nil, &ParseError{Line: cur.Line, Column: cur.Column, Msg: "fim de arquivo dentro de classe: faltou '}'"}
+		}
+
+		f, err := p.parseFeature()
+		if err != nil {
+			return nil, err
+		}
+
+		feats = append(feats, f)
+
+	}
+
 	if _, err := p.expect(token.RBRACE); err != nil {
 		return nil, err
 	}
@@ -60,7 +76,7 @@ func (p *Parser) parseClass() (*ast.Class, error) {
 	return &ast.Class{
 		Name:     nameTok.Literal,
 		Parent:   parent,
-		Features: nil,
+		Features: feats,
 		Line:     classTok.Line,
 		Column:   classTok.Column,
 	}, nil
