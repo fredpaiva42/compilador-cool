@@ -23,6 +23,6 @@ func (p *Parser) parseExpr() (ast.Expr, error) {
 		}
 		return &ast.IsVoid{Expr: e, Line: cur.Line, Column: cur.Column}, nil
 	default:
-		return p.parsePrimary()
+		return p.parseDispatch()
 	}
 }

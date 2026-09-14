@@ -96,3 +96,24 @@ type IsVoid struct {
 }
 
 func (*IsVoid) exprNode() {}
+
+type Dispatch struct {
+	Receiver Expr
+	Method   string
+	Args     []Expr
+	Line     int
+	Column   int
+}
+
+func (*Dispatch) exprNode() {}
+
+type StaticDispatch struct {
+	Receiver   Expr
+	StaticType string
+	Method     string
+	Args       []Expr
+	Line       int
+	Column     int
+}
+
+func (*StaticDispatch) exprNode() {}
