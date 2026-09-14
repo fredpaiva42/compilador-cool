@@ -23,7 +23,7 @@ func (p *Parser) parsePrimary() (ast.Expr, error) {
 		p.next()
 		return &ast.Object{Name: cur.Literal, Line: cur.Line, Column: cur.Column}, nil
 	case token.LPAREN:
-		p.next() // consome "("
+		p.next()
 		e, err := p.parseExpr()
 		if err != nil {
 			return nil, err
@@ -32,6 +32,13 @@ func (p *Parser) parsePrimary() (ast.Expr, error) {
 			return nil, err
 		}
 		return e, nil
+	case token.NEW:
+		p.next()
+		typeTok, err := p.expect(token.TYPEID)
+		if err != nil {
+			return nil, err
+		}
+		return &ast.New{Type: typeTok.Literal, Line: cur.Line, Column: cur.Column}, nil
 	default:
 		return nil, &ParseError{Line: cur.Line, Column: cur.Column, Msg: "esperava expressão, encontrei " + cur.Type.String() + " (" + cur.Literal + ")"}
 	}

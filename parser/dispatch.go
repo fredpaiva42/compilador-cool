@@ -113,6 +113,14 @@ func recvPos(e ast.Expr) (int, int) {
 		return n.Line, n.Column
 	case *ast.Case:
 		return n.Line, n.Column
+	case *ast.Assign:
+		return n.Line, n.Column
+	case *ast.BinOp:
+		return n.Line, n.Column
+	case *ast.Neg:
+		return n.Line, n.Column
+	case *ast.Not:
+		return n.Line, n.Column
 	default:
 		return 0, 0
 	}

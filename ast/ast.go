@@ -179,3 +179,38 @@ type Case struct {
 }
 
 func (*Case) exprNode() {}
+
+type Assign struct {
+	Target string
+	Value  Expr
+	Line   int
+	Column int
+}
+
+func (*Assign) exprNode() {}
+
+type BinOp struct {
+	Op     string
+	Left   Expr
+	Right  Expr
+	Line   int
+	Column int
+}
+
+func (*BinOp) exprNode() {}
+
+type Neg struct {
+	Expr   Expr
+	Line   int
+	Column int
+}
+
+func (*Neg) exprNode() {}
+
+type Not struct {
+	Expr   Expr
+	Line   int
+	Column int
+}
+
+func (*Not) exprNode() {}
