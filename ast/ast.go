@@ -48,3 +48,51 @@ func (*Method) featureNode() {}
 type Expr interface {
 	exprNode()
 }
+
+type IntConst struct {
+	Value  string
+	Line   int
+	Column int
+}
+
+func (*IntConst) exprNode() {}
+
+type StringConst struct {
+	Value  string
+	Line   int
+	Column int
+}
+
+func (*StringConst) exprNode() {}
+
+type BoolConst struct {
+	Value  bool
+	Line   int
+	Column int
+}
+
+func (*BoolConst) exprNode() {}
+
+type Object struct {
+	Name   string
+	Line   int
+	Column int
+}
+
+func (*Object) exprNode() {}
+
+type New struct {
+	Type   string
+	Line   int
+	Column int
+}
+
+func (*New) exprNode() {}
+
+type IsVoid struct {
+	Expr   Expr
+	Line   int
+	Column int
+}
+
+func (*IsVoid) exprNode() {}

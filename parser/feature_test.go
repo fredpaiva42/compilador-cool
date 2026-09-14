@@ -29,10 +29,3 @@ func TestFeatureBadFollow(t *testing.T) {
 		t.Fatalf("esperava erro de '(' ou ':', deu %v", err)
 	}
 }
-
-func TestMethodWaitsForExpr(t *testing.T) {
-	_, err := New(tokenize("class P { f() : Int { 1 }; };")).ParseProgram()
-	if err == nil || !strings.Contains(err.Error(), "parseExpr") {
-		t.Fatalf("esperava erro do stub parseExpr, deu: %v", err)
-	}
-}
