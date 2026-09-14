@@ -117,3 +117,48 @@ type StaticDispatch struct {
 }
 
 func (*StaticDispatch) exprNode() {}
+
+type If struct {
+	Cond   Expr
+	Then   Expr
+	Else   Expr
+	Line   int
+	Column int
+}
+
+func (*If) exprNode() {}
+
+type While struct {
+	Cond   Expr
+	Body   Expr
+	Line   int
+	Column int
+}
+
+func (*While) exprNode() {}
+
+type Block struct {
+	Exprs  []Expr
+	Line   int
+	Column int
+}
+
+func (*Block) exprNode() {}
+
+type LetBinding struct {
+	Name    string
+	Type    string
+	Init    Expr
+	HasInit bool
+	Line    int
+	Column  int
+}
+
+type Let struct {
+	Bindings []*LetBinding
+	Body     Expr
+	Line     int
+	Column   int
+}
+
+func (*Let) exprNode() {}

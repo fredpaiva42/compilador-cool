@@ -22,6 +22,14 @@ func (p *Parser) parseExpr() (ast.Expr, error) {
 			return nil, err
 		}
 		return &ast.IsVoid{Expr: e, Line: cur.Line, Column: cur.Column}, nil
+	case token.IF:
+		return p.parseIf()
+	case token.WHILE:
+		return p.parseWhile()
+	case token.LBRACE:
+		return p.parseBlock()
+	case token.LET:
+		return p.parseLet()
 	default:
 		return p.parseDispatch()
 	}
