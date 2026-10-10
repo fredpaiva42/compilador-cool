@@ -53,6 +53,10 @@ func (e *typeEnv) checkExpr(x ast.Expr) (string, error) {
 		return "Bool", nil
 	case *ast.BinOp:
 		return e.checkBinOp(n)
+	case *ast.Dispatch:
+		return e.checkDispatch(n)
+	case *ast.StaticDispatch:
+		return e.checkStaticDispatch(n)
 	default:
 		return "", fmt.Errorf("expressão ainda sem checagem (linha %d)", exprLine(x))
 	}
@@ -138,7 +142,94 @@ func exprLine(x ast.Expr) int {
 		return n.Line
 	case *ast.BinOp:
 		return n.Line
+	case *ast.Dispatch:
+		return n.Line
+	case *ast.StaticDispatch:
+		return n.Line
 	default:
 		return 0
 	}
+}
+
+// lookupMethod acha a assinatura na classe (os herdados já foram copiados
+// pelo BuildEnvs, então a consulta é direta).
+func (e *typeEnv) lookupMethod(cls, name string) (*MethodSig, bool) {
+	m, ok := e.tab.Methods[cls][name]
+	return m, ok
+}
+
+// checkDispatch confere chamada dinâmica "recv.f(args)" (§7.4).
+// Receptor ausente (nil) significa self implícito, tipo SELF_TYPE.
+func (e *typeEnv) checkDispatch(n *ast.Dispatch) (string, error) {
+	recvType := "SELF_TYPE"
+	if n.Receiver != nil {
+		var err error
+		recvType, err = e.checkExpr(n.Receiver)
+		if err != nil {
+			return "", err
+		}
+	}
+	lookup := resolve(recvType, e.current)
+	sig, ok := e.lookupMethod(lookup, n.Method)
+	if !ok {
+		return "", fmt.Errorf("método %s inexistente em %s (linha %d)", n.Method, lookup, n.Line)
+	}
+	if len(n.Args) != len(sig.ParamTypes) {
+		return "", fmt.Errorf("método %s espera %d argumento(s), recebeu %d (linha %d)",
+			n.Method, len(sig.ParamTypes), len(n.Args), n.Line)
+	}
+	for i, a := range n.Args {
+		at, err := e.checkExpr(a)
+		if err != nil {
+			return "", err
+		}
+		if !e.tab.conformsTo(at, sig.ParamTypes[i], e.current) {
+			return "", fmt.Errorf("argumento %d de %s: %s não conforma com %s (linha %d)",
+				i+1, n.Method, at, sig.ParamTypes[i], n.Line)
+		}
+	}
+	if sig.Return == "SELF_TYPE" {
+		return recvType, nil
+	}
+	return sig.Return, nil
+}
+
+// checkStaticDispatch confere "recv@T.f(args)" (§7.4).
+func (e *typeEnv) checkStaticDispatch(n *ast.StaticDispatch) (string, error) {
+	recvType, err := e.checkExpr(n.Receiver)
+	if err != nil {
+		return "", err
+	}
+	if n.StaticType != "SELF_TYPE" {
+		if _, ok := e.tab.Classes[n.StaticType]; !ok {
+			return "", fmt.Errorf("tipo %s inexistente no dispatch estático (linha %d)", n.StaticType, n.Line)
+		}
+	}
+	if !e.tab.conformsTo(recvType, n.StaticType, e.current) {
+		return "", fmt.Errorf("receptor %s não conforma com %s no dispatch estático (linha %d)",
+			recvType, n.StaticType, n.Line)
+	}
+	lookup := resolve(n.StaticType, e.current)
+	sig, ok := e.lookupMethod(lookup, n.Method)
+	if !ok {
+		return "", fmt.Errorf("método %s inexistente em %s (linha %d)", n.Method, lookup, n.Line)
+	}
+	if len(n.Args) != len(sig.ParamTypes) {
+		return "", fmt.Errorf("método %s espera %d argumento(s), recebeu %d (linha %d)",
+			n.Method, len(sig.ParamTypes), len(n.Args), n.Line)
+	}
+	for i, a := range n.Args {
+		at, err := e.checkExpr(a)
+		if err != nil {
+			return "", err
+		}
+		if !e.tab.conformsTo(at, sig.ParamTypes[i], e.current) {
+			return "", fmt.Errorf("argumento %d de %s: %s não conforma com %s (linha %d)",
+				i+1, n.Method, at, sig.ParamTypes[i], n.Line)
+		}
+	}
+	if sig.Return == "SELF_TYPE" {
+		return recvType, nil
+	}
+	return sig.Return, nil
 }
