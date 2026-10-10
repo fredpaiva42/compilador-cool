@@ -57,6 +57,16 @@ func (e *typeEnv) checkExpr(x ast.Expr) (string, error) {
 		return e.checkDispatch(n)
 	case *ast.StaticDispatch:
 		return e.checkStaticDispatch(n)
+	case *ast.Assign:
+		return e.checkAssign(n)
+	case *ast.Block:
+		return e.checkBlock(n)
+	case *ast.If:
+		return e.checkIf(n)
+	case *ast.While:
+		return e.checkWhile(n)
+	case *ast.Let:
+		return e.checkLet(n)
 	default:
 		return "", fmt.Errorf("expressão ainda sem checagem (linha %d)", exprLine(x))
 	}
@@ -146,6 +156,16 @@ func exprLine(x ast.Expr) int {
 		return n.Line
 	case *ast.StaticDispatch:
 		return n.Line
+	case *ast.Assign:
+		return n.Line
+	case *ast.Block:
+		return n.Line
+	case *ast.If:
+		return n.Line
+	case *ast.While:
+		return n.Line
+	case *ast.Let:
+		return n.Line
 	default:
 		return 0
 	}
@@ -232,4 +252,99 @@ func (e *typeEnv) checkStaticDispatch(n *ast.StaticDispatch) (string, error) {
 		return recvType, nil
 	}
 	return sig.Return, nil
+}
+
+// checkAssign confere "nome <- valor": alvo declarado (nunca self),
+// valor conformando com o declarado; o tipo é o do valor ([Assign]).
+func (e *typeEnv) checkAssign(n *ast.Assign) (string, error) {
+	if n.Target == "self" {
+		return "", fmt.Errorf("atribuição para self é proibida (linha %d)", n.Line)
+	}
+	decl, ok := e.vars[n.Target]
+	if !ok {
+		return "", fmt.Errorf("atribuição a %s não declarado (linha %d)", n.Target, n.Line)
+	}
+	vt, err := e.checkExpr(n.Value)
+	if err != nil {
+		return "", err
+	}
+	if !e.tab.conformsTo(vt, decl, e.current) {
+		return "", fmt.Errorf("atribuição: %s não conforma com %s (linha %d)", vt, decl, n.Line)
+	}
+	return vt, nil
+}
+
+// checkBlock tipa cada item no mesmo ambiente; vale o tipo do último.
+func (e *typeEnv) checkBlock(n *ast.Block) (string, error) {
+	var t string
+	for _, x := range n.Exprs {
+		var err error
+		t, err = e.checkExpr(x)
+		if err != nil {
+			return "", err
+		}
+	}
+	return t, nil
+}
+
+// checkIf confere "if cond then a else b fi": cond Bool, tipo é o join.
+func (e *typeEnv) checkIf(n *ast.If) (string, error) {
+	c, err := e.checkExpr(n.Cond)
+	if err != nil {
+		return "", err
+	}
+	if resolve(c, e.current) != "Bool" {
+		return "", fmt.Errorf("condição do if exige Bool, encontrei %s (linha %d)", c, n.Line)
+	}
+	t, err := e.checkExpr(n.Then)
+	if err != nil {
+		return "", err
+	}
+	f, err := e.checkExpr(n.Else)
+	if err != nil {
+		return "", err
+	}
+	return e.tab.Join(resolve(t, e.current), resolve(f, e.current)), nil
+}
+
+// checkWhile confere "while cond loop corpo pool": cond Bool, tipo Object.
+func (e *typeEnv) checkWhile(n *ast.While) (string, error) {
+	c, err := e.checkExpr(n.Cond)
+	if err != nil {
+		return "", err
+	}
+	if resolve(c, e.current) != "Bool" {
+		return "", fmt.Errorf("condição do while exige Bool, encontrei %s (linha %d)", c, n.Line)
+	}
+	if _, err := e.checkExpr(n.Body); err != nil {
+		return "", err
+	}
+	return "Object", nil
+}
+
+// checkLet confere "let b1, ... in corpo" (§7.8).
+func (e *typeEnv) checkLet(n *ast.Let) (string, error) {
+	vars := map[string]string{}
+	for k, v := range e.vars {
+		vars[k] = v // cópia: o escopo do let morre aqui dentro
+	}
+	inner := &typeEnv{tab: e.tab, current: e.current, vars: vars}
+	for _, b := range n.Bindings {
+		if b.Type != "SELF_TYPE" {
+			if _, ok := e.tab.Classes[b.Type]; !ok {
+				return "", fmt.Errorf("let %s declara tipo inexistente %s (linha %d)", b.Name, b.Type, b.Line)
+			}
+		}
+		if b.HasInit {
+			it, err := inner.checkExpr(b.Init)
+			if err != nil {
+				return "", err
+			}
+			if !e.tab.conformsTo(it, b.Type, e.current) {
+				return "", fmt.Errorf("init de %s: %s não conforma com %s (linha %d)", b.Name, it, b.Type, b.Line)
+			}
+		}
+		vars[b.Name] = b.Type
+	}
+	return inner.checkExpr(n.Body)
 }
