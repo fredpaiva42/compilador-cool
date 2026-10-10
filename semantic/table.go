@@ -13,6 +13,8 @@ type ClassInfo struct {
 
 type Table struct {
 	Classes map[string]*ClassInfo
+	Methods map[string]map[string]*MethodSig
+	Attrs   map[string]map[string]*AttrInfo
 }
 
 // Build monta a tabela a partir do programa.
@@ -23,6 +25,10 @@ type Table struct {
 func Build(prog *ast.Program) (*Table, error) {
 	t := &Table{Classes: map[string]*ClassInfo{}}
 	t.Classes["Object"] = &ClassInfo{Name: "Object", Parent: ""}
+
+	for _, b := range []string{"IO", "Int", "String", "Bool"} {
+		t.Classes[b] = &ClassInfo{Name: b, Parent: ""}
+	}
 
 	for _, c := range prog.Classes {
 		if _, dup := t.Classes[c.Name]; dup {
