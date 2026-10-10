@@ -7,6 +7,7 @@ import (
 	"cool/ast"
 	"cool/lexer"
 	"cool/parser"
+	"cool/semantic"
 	"cool/token"
 )
 
@@ -60,6 +61,11 @@ func main() {
 
 	if withAST {
 		fmt.Println(ast.DumpProgram(prog))
+	}
+
+	if err := semantic.CheckProgram(prog); err != nil {
+		fmt.Fprintf(os.Stderr, "erro semantico: %v\n", err)
+		os.Exit(1)
 	}
 
 	fmt.Fprintf(os.Stderr, "OK: %d classe(s)\n", len(prog.Classes))

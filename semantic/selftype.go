@@ -59,7 +59,7 @@ func resolve(typ, current string) string {
 }
 
 // conformsTo diz se um valor de tipo estático sub pode ir onde se espera
-// o tipo declarado sup, ambos lidos na classe current (§4 + §4.1).
+// o tipo declarado sup, ambos lidos na classe current.
 func (t *Table) conformsTo(sub, sup, current string) bool {
 	if sup == "SELF_TYPE" {
 		return sub == "SELF_TYPE"

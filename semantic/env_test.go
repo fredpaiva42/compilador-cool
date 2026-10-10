@@ -95,4 +95,7 @@ func TestBuiltinMethodsExist(t *testing.T) {
 	if tab.Methods["Object"]["copy"] == nil {
 		t.Fatal("Object.copy deveria existir")
 	}
+	if tab.Methods["IO"]["abort"] == nil {
+		t.Fatal("IO deveria herdar abort de Object")
+	}
 }

@@ -30,7 +30,7 @@ func isBuiltin(name string) bool {
 }
 
 func (t *Table) BuildEnvs() error {
-	// 1. Proibido herdar de Int/String/Bool (§8).
+	// 1. Proibido herdar de Int/String/Bool.
 	for _, info := range t.Classes {
 		if info.Node == nil {
 			continue // básica, sem declaração
@@ -71,6 +71,16 @@ func (t *Table) BuildEnvs() error {
 		t.Attrs[cls] = map[string]*AttrInfo{}
 	}
 
+	// Básicas com métodos próprios também herdam os de Object:
+	// abort/type_name/copy existem em toda classe.
+	for _, cls := range []string{"IO", "String"} {
+		for k, v := range t.Methods["Object"] {
+			if _, ok := t.Methods[cls][k]; !ok {
+				t.Methods[cls][k] = v
+			}
+		}
+	}
+
 	// 3. Usuárias em ordem pai-antes-do-filho, copiando os herdados.
 	for _, name := range t.order() {
 		if _, done := t.Methods[name]; done {
@@ -82,7 +92,7 @@ func (t *Table) BuildEnvs() error {
 		attrs := map[string]*AttrInfo{}
 		parent := info.Parent
 		if parent == "" && name != "Object" {
-			parent = "Object" // herança implícita (§3.2)
+			parent = "Object" // herança implícita
 		}
 
 		if parent != "" {
@@ -104,7 +114,7 @@ func (t *Table) BuildEnvs() error {
 						return fmt.Errorf("atributo %s duplicado na classe %s (linha %d)", n.Name, name, n.Line)
 					}
 					if _, inherited := attrs[n.Name]; inherited {
-						return fmt.Errorf("atributo %s de %s redefine herdado (§5, linha %d)", n.Name, name, n.Line)
+						return fmt.Errorf("atributo %s de %s redefine herdado (linha %d)", n.Name, name, n.Line)
 					}
 					ownAttrs[n.Name] = true
 					attrs[n.Name] = &AttrInfo{Name: n.Name, Type: n.Type, Owner: name, Line: n.Line}

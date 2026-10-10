@@ -6,7 +6,7 @@ import (
 	"cool/ast"
 )
 
-// typeEnv é o ambiente de checagem de uma expressão (§12.1, parte O + C):
+// typeEnv é o ambiente de checagem de uma expressão:
 // as variáveis visíveis e a classe onde o código está.
 type typeEnv struct {
 	tab     *Table
@@ -67,6 +67,8 @@ func (e *typeEnv) checkExpr(x ast.Expr) (string, error) {
 		return e.checkWhile(n)
 	case *ast.Let:
 		return e.checkLet(n)
+	case *ast.Case:
+		return e.checkCase(n)
 	default:
 		return "", fmt.Errorf("expressão ainda sem checagem (linha %d)", exprLine(x))
 	}
@@ -83,7 +85,7 @@ func (e *typeEnv) checkNew(n *ast.New) (string, error) {
 	return n.Type, nil
 }
 
-// checkBinOp confere operadores infixos (§7.12).
+// checkBinOp confere operadores infixos.
 // Os tipos são resolvidos (SELF_TYPE → corrente) antes de comparar.
 func (e *typeEnv) checkBinOp(n *ast.BinOp) (string, error) {
 	l, err := e.checkExpr(n.Left)
@@ -166,6 +168,8 @@ func exprLine(x ast.Expr) int {
 		return n.Line
 	case *ast.Let:
 		return n.Line
+	case *ast.Case:
+		return n.Line
 	default:
 		return 0
 	}
@@ -178,7 +182,7 @@ func (e *typeEnv) lookupMethod(cls, name string) (*MethodSig, bool) {
 	return m, ok
 }
 
-// checkDispatch confere chamada dinâmica "recv.f(args)" (§7.4).
+// checkDispatch confere chamada dinâmica "recv.f(args)".
 // Receptor ausente (nil) significa self implícito, tipo SELF_TYPE.
 func (e *typeEnv) checkDispatch(n *ast.Dispatch) (string, error) {
 	recvType := "SELF_TYPE"
@@ -214,7 +218,7 @@ func (e *typeEnv) checkDispatch(n *ast.Dispatch) (string, error) {
 	return sig.Return, nil
 }
 
-// checkStaticDispatch confere "recv@T.f(args)" (§7.4).
+// checkStaticDispatch confere "recv@T.f(args)".
 func (e *typeEnv) checkStaticDispatch(n *ast.StaticDispatch) (string, error) {
 	recvType, err := e.checkExpr(n.Receiver)
 	if err != nil {
@@ -322,7 +326,7 @@ func (e *typeEnv) checkWhile(n *ast.While) (string, error) {
 	return "Object", nil
 }
 
-// checkLet confere "let b1, ... in corpo" (§7.8).
+// checkLet confere "let b1, ... in corpo".
 func (e *typeEnv) checkLet(n *ast.Let) (string, error) {
 	vars := map[string]string{}
 	for k, v := range e.vars {
@@ -347,4 +351,40 @@ func (e *typeEnv) checkLet(n *ast.Let) (string, error) {
 		vars[b.Name] = b.Type
 	}
 	return inner.checkExpr(n.Body)
+}
+
+// checkCase confere "case alvo of ramos esac".
+func (e *typeEnv) checkCase(n *ast.Case) (string, error) {
+	if _, err := e.checkExpr(n.Subject); err != nil {
+		return "", err
+	}
+	if len(n.Branches) == 0 {
+		return "", fmt.Errorf("case sem ramos (linha %d)", n.Line)
+	}
+	seen := map[string]bool{}
+	var types []string
+	for _, b := range n.Branches {
+		if b.Type == "SELF_TYPE" {
+			return "", fmt.Errorf("ramo do case não pode ser SELF_TYPE (linha %d)", b.Line)
+		}
+		if _, ok := e.tab.Classes[b.Type]; !ok {
+			return "", fmt.Errorf("ramo declara tipo inexistente %s (linha %d)", b.Type, b.Line)
+		}
+		if seen[b.Type] {
+			return "", fmt.Errorf("tipo %s repetido nos ramos do case (linha %d)", b.Type, b.Line)
+		}
+		seen[b.Type] = true
+		vars := map[string]string{}
+		for k, v := range e.vars {
+			vars[k] = v
+		}
+		vars[b.Name] = b.Type
+		inner := &typeEnv{tab: e.tab, current: e.current, vars: vars}
+		bt, err := inner.checkExpr(b.Body)
+		if err != nil {
+			return "", err
+		}
+		types = append(types, resolve(bt, e.current))
+	}
+	return e.tab.JoinAll(types), nil
 }

@@ -54,7 +54,7 @@ func Build(prog *ast.Program) (*Table, error) {
 	return t, nil
 }
 
-// checkCycles verifica se a herança forma árvore (sem ciclo, §3.2).
+// checkCycles verifica se a herança forma árvore (sem ciclo).
 // Para cada classe, caminha para cima anotando o caminho;
 // repetir um nome no mesmo caminho prova o ciclo.
 func (t *Table) checkCycles() error {
