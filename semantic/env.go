@@ -118,6 +118,10 @@ func (t *Table) BuildEnvs() error {
 						sig.ParamNames = append(sig.ParamNames, fm.Name)
 						sig.ParamTypes = append(sig.ParamTypes, fm.Type)
 					}
+
+					if err := t.checkOverride(name, n.Name, sig); err != nil {
+						return err
+					}
 					methods[n.Name] = sig
 				}
 			}
