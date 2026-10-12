@@ -84,4 +84,6 @@
       (then
         (local.set $p (i32.sub (local.get $p) (i32.const 1)))
         (i32.store8 (local.get $p) (i32.const 45))))
-        (call $putstr (local.get $p) (i32.sub (i32.const 64) (local.get $p)))))
+    (call $putstr (local.get $p) (i32.sub (i32.const 64) (local.get $p)))
+  )
+)
