@@ -4,6 +4,7 @@
 Ignora strings e comentarios de linha (;;).
 Uso: python3 check.py arquivo.wat
 """
+
 import re
 import sys
 
@@ -29,7 +30,11 @@ if depth != 0:
     print(f"ERRO: faltam {depth} parentese(s) de fechamento")
     sys.exit(1)
 if fechou_em is not None and fechou_em < ultima:
-    print(f"ALERTA: a estrutura fecha na linha {fechou_em} e ainda ha texto ate a linha {ultima}")
-    print("        parentese a mais no meio: o modulo fecha cedo e o que vem depois fica fora")
+    print(
+        f"ALERTA: a estrutura fecha na linha {fechou_em} e ainda ha texto ate a linha {ultima}"
+    )
+    print(
+        "        parentese a mais no meio: o modulo fecha cedo e o que vem depois fica fora"
+    )
     sys.exit(1)
 print("ok: estrutura consistente")
