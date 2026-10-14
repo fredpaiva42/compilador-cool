@@ -1,0 +1,9 @@
+alloc ok
+int: 0
+int: -1234567890
+int: 9223372036854775807
+str: ola, compilador
+linha: ola runtime
+soma: 40
+neg: -7
+fim

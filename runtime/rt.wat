@@ -25,13 +25,18 @@
   (global $in_len (mut i32)
     (i32.const 0))
 
-  ;; quebra de linha, para separar as saídas do teste
-  (data
-    (i32.const 2048) "\n")
-  (data (i32.const 2050) "linha: ")
-  (data (i32.const 2060) "primeiro: ")
-  (data (i32.const 2072) "segundo: ")
-  (data (i32.const 2084) "neg: ")
+  ;; mensagens e literais
+  (data (i32.const 2048) "\n")
+  (data (i32.const 2056) "alloc ok\n")
+  (data (i32.const 2072) "alloc FALHOU\n")
+  (data (i32.const 2088) "int: ")
+  (data (i32.const 2096) "str: ")
+  (data (i32.const 2104) "linha: ")
+  (data (i32.const 2112) "soma: ")
+  (data (i32.const 2120) "neg: ")
+  (data (i32.const 2128) "fim\n")
+  (data (i32.const 2136) "ola, compilador")
+
 
   ;; putstr(ptr, len): escreve len bytes a partir de ptr
   (func $putstr (param $ptr i32) (param $len i32)
@@ -48,22 +53,59 @@
         (i32.const 1)
         (i32.const 8))))
 
-  (func (export "_start")
-    (local $n i32)
-    (local.set $n (call $read_line (i32.const 1100) (i32.const 200)))
-    (call $putstr (i32.const 2050) (i32.const 7))
-    (call $putstr (i32.const 1100) (local.get $n))
-    (call $putstr (i32.const 2048) (i32.const 1))
-    (call $putstr (i32.const 2060) (i32.const 10))
-    (call $putint (call $read_int))
-    (call $putstr (i32.const 2048) (i32.const 1))
-    (call $putstr (i32.const 2072) (i32.const 9))
-    (call $putint (call $read_int))
-    (call $putstr (i32.const 2048) (i32.const 1))
-    (call $putstr (i32.const 2084) (i32.const 5))
-    (call $putint (call $read_int))
-    (call $putstr (i32.const 2048) (i32.const 1))
-    (call $proc_exit (i32.const 0)))
+  ;; bateria do runtime: exercita alocação, inteiros, strings e entrada.
+    ;; confira com testar.sh (comparação contra bateria.esperado)
+    (func (export "_start")
+      (local $p1 i32)
+      (local $p2 i32)
+      (local $p3 i32)
+      (local $ok i32)
+      (local $n i32)
+
+      ;; 1. alocador: 8, 9 e 1 byte devem devolver pulos de 8, 16 e 8
+      (local.set $p1 (call $alloc (i32.const 8)))
+      (local.set $p2 (call $alloc (i32.const 9)))
+      (local.set $p3 (call $alloc (i32.const 1)))
+      (local.set $ok
+        (i32.and
+          (i32.eq (i32.sub (local.get $p2) (local.get $p1)) (i32.const 8))
+          (i32.eq (i32.sub (local.get $p3) (local.get $p2)) (i32.const 16))))
+      (if (local.get $ok)
+        (then (call $putstr (i32.const 2056) (i32.const 9)))
+        (else (call $putstr (i32.const 2072) (i32.const 13))))
+
+      ;; 2. inteiros: zero, negativo de varios digitos e o maior i64
+      (call $putstr (i32.const 2088) (i32.const 5))
+      (call $putint (i64.const 0))
+      (call $putstr (i32.const 2048) (i32.const 1))
+      (call $putstr (i32.const 2088) (i32.const 5))
+      (call $putint (i64.const -1234567890))
+      (call $putstr (i32.const 2048) (i32.const 1))
+      (call $putstr (i32.const 2088) (i32.const 5))
+      (call $putint (i64.const 9223372036854775807))
+      (call $putstr (i32.const 2048) (i32.const 1))
+
+      ;; 3. string literal dos dados estaticos
+      (call $putstr (i32.const 2096) (i32.const 5))
+      (call $putstr (i32.const 2136) (i32.const 15))
+      (call $putstr (i32.const 2048) (i32.const 1))
+
+      ;; 4. entrada: uma linha, dois numeros (o primeiro descarta o resto
+      ;; da linha) e um negativo
+      (local.set $n (call $read_line (i32.const 1100) (i32.const 200)))
+      (call $putstr (i32.const 2104) (i32.const 7))
+      (call $putstr (i32.const 1100) (local.get $n))
+      (call $putstr (i32.const 2048) (i32.const 1))
+      (call $putstr (i32.const 2112) (i32.const 6))
+      (call $putint (i64.add (call $read_int) (call $read_int)))
+      (call $putstr (i32.const 2048) (i32.const 1))
+      (call $putstr (i32.const 2120) (i32.const 5))
+      (call $putint (call $read_int))
+      (call $putstr (i32.const 2048) (i32.const 1))
+
+      ;; fim
+      (call $putstr (i32.const 2128) (i32.const 4))
+      (call $proc_exit (i32.const 0)))
 
 
   ;; alloc(size): devolve o próximo endereço livre e avança o heap
