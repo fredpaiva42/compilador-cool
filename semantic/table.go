@@ -5,27 +5,30 @@ import (
 	"fmt"
 )
 
+// ClassInfo é a entrada de uma classe na tabela; Node é nil nas básicas.
 type ClassInfo struct {
 	Name   string
-	Parent string
+	Parent string // "" quando não há inherits: o pai é Object
 	Node   *ast.Class
 }
 
+// Table guarda a hierarquia e, para cada classe, métodos e atributos com os
+// herdados já copiados.
 type Table struct {
 	Classes map[string]*ClassInfo
-	Methods map[string]map[string]*MethodSig
-	Attrs   map[string]map[string]*AttrInfo
+	Methods map[string]map[string]*MethodSig // classe → método → assinatura
+	Attrs   map[string]map[string]*AttrInfo  // classe → atributo → ficha
 }
 
-// Build monta a tabela a partir do programa.
-// Nesta parte ela garante duas coisas:
-//  1. nenhuma classe declarada duas vezes;
-//  2. todo "inherits X" aponta para uma classe que existe
-//     (exceto o vazio, que é o Object implícito e sempre existe).
+// Build monta a tabela de classes e valida o esqueleto da hierarquia:
+// nenhuma classe declarada duas vezes, todo "inherits X" aponta para uma
+// classe que existe (sem inherits, o pai é Object) e não há ciclo.
 func Build(prog *ast.Program) (*Table, error) {
 	t := &Table{Classes: map[string]*ClassInfo{}}
 	t.Classes["Object"] = &ClassInfo{Name: "Object", Parent: ""}
 
+	// Básicas da linguagem: entram na tabela sem nó, porque não são
+	// declaradas no arquivo do programa.
 	for _, b := range []string{"IO", "Int", "String", "Bool"} {
 		t.Classes[b] = &ClassInfo{Name: b, Parent: ""}
 	}

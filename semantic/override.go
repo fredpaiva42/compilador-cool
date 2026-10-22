@@ -2,9 +2,8 @@ package semantic
 
 import "fmt"
 
-// signaturesEqual diz se duas assinaturas são idênticas para fins de
-// override: mesma aridade, mesmos tipos de formais, mesmo retorno.
-// Os NOMES dos formais não entram: chamada é por posição, não por nome.
+// signaturesEqual compara aridade, tipos dos formais e retorno.
+// Os nomes dos formais não entram: a chamada casa argumento por posição.
 func signaturesEqual(a, b *MethodSig) bool {
 	if len(a.ParamTypes) != len(b.ParamTypes) {
 		return false
@@ -31,9 +30,8 @@ func (t *Table) parentOf(name string) string {
 	return "Object"
 }
 
-// checkOverride compara o método que C declara com cada ancestral que
-// também declara o mesmo nome. A primeira assinatura encontrada subindo
-// é o contrato a respeitar.
+// checkOverride sobe até o primeiro ancestral que declara o método: a
+// assinatura dele é o contrato a respeitar.
 func (t *Table) checkOverride(className, methodName string, sig *MethodSig) error {
 	for cur := t.parentOf(className); cur != ""; cur = t.parentOf(cur) {
 		if parentSig, ok := t.Methods[cur][methodName]; ok {

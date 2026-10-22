@@ -6,8 +6,9 @@ import (
 	"cool/ast"
 )
 
-// CheckProgram executa a análise semântica completa:
-// esqueleto → ambientes → declarações → corpos → Main.main.
+// CheckProgram executa a análise semântica na ordem em que as informações
+// ficam disponíveis: esqueleto da hierarquia, ambientes com os herdados,
+// tipos declarados, corpos e inits das classes, e o contrato de Main.main.
 func CheckProgram(prog *ast.Program) error {
 	tab, err := Build(prog)
 	if err != nil {
@@ -31,7 +32,6 @@ func CheckProgram(prog *ast.Program) error {
 	return tab.checkMain()
 }
 
-// classEnv monta o ambiente-base da classe: atributos + self.
 func (t *Table) classEnv(className string) *typeEnv {
 	vars := map[string]string{}
 	for name, a := range t.Attrs[className] {
@@ -41,6 +41,7 @@ func (t *Table) classEnv(className string) *typeEnv {
 	return &typeEnv{tab: t, current: className, vars: vars}
 }
 
+// Sem init vale o valor padrão do tipo, então não há o que checar.
 func (t *Table) checkAttribute(className string, a *ast.Attribute) error {
 	if !a.HasInit {
 		return nil
@@ -57,6 +58,7 @@ func (t *Table) checkAttribute(className string, a *ast.Attribute) error {
 	return nil
 }
 
+// Formal com nome de atributo esconde o atributo dentro do método.
 func (t *Table) checkMethod(className string, m *ast.Method) error {
 	e := t.classEnv(className)
 	seen := map[string]bool{}
@@ -94,7 +96,7 @@ func (t *Table) checkClass(info *ClassInfo) error {
 	return nil
 }
 
-// checkMain cobra o contrato de entrada.
+// checkMain exige main próprio, sem formais, e não herdado.
 func (t *Table) checkMain() error {
 	main, ok := t.Classes["Main"]
 	if !ok || main.Node == nil {

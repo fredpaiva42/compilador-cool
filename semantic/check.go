@@ -6,16 +6,13 @@ import (
 	"cool/ast"
 )
 
-// typeEnv é o ambiente de checagem de uma expressão:
-// as variáveis visíveis e a classe onde o código está.
 type typeEnv struct {
 	tab     *Table
-	current string            // classe corrente (ancora do SELF_TYPE)
-	vars    map[string]string // OBJECTID → tipo declarado (pode ser SELF_TYPE)
+	current string
+	vars    map[string]string // valores podem ser "SELF_TYPE"
 }
 
-// checkExpr infere o tipo estático de qualquer expressão.
-// Devolve o nome do tipo ("Int", "Cachorro", "SELF_TYPE"...).
+// checkExpr devolve o tipo estático de x como nome ("Int", "Cachorro", "SELF_TYPE").
 func (e *typeEnv) checkExpr(x ast.Expr) (string, error) {
 	switch n := x.(type) {
 	case *ast.IntConst:
@@ -70,11 +67,10 @@ func (e *typeEnv) checkExpr(x ast.Expr) (string, error) {
 	case *ast.Case:
 		return e.checkCase(n)
 	default:
-		return "", fmt.Errorf("expressão ainda sem checagem (linha %d)", exprLine(x))
+		return "", fmt.Errorf("expressão não tratada pelo verificador (linha %d)", exprLine(x))
 	}
 }
 
-// checkNew confere "new T": SELF_TYPE sempre vale; o resto precisa existir.
 func (e *typeEnv) checkNew(n *ast.New) (string, error) {
 	if n.Type == "SELF_TYPE" {
 		return "SELF_TYPE", nil
@@ -85,8 +81,7 @@ func (e *typeEnv) checkNew(n *ast.New) (string, error) {
 	return n.Type, nil
 }
 
-// checkBinOp confere operadores infixos.
-// Os tipos são resolvidos (SELF_TYPE → corrente) antes de comparar.
+// checkBinOp resolve SELF_TYPE antes de comparar os operandos.
 func (e *typeEnv) checkBinOp(n *ast.BinOp) (string, error) {
 	l, err := e.checkExpr(n.Left)
 	if err != nil {
@@ -121,8 +116,6 @@ func (e *typeEnv) checkBinOp(n *ast.BinOp) (string, error) {
 	}
 }
 
-// checkObject resolve um uso de variável: self vale SELF_TYPE,
-// o resto é procurado no ambiente (formais + atributos entram no Passo 7).
 func (e *typeEnv) checkObject(n *ast.Object) (string, error) {
 	if n.Name == "self" {
 		return "SELF_TYPE", nil
@@ -133,7 +126,6 @@ func (e *typeEnv) checkObject(n *ast.Object) (string, error) {
 	return "", fmt.Errorf("identificador %s não declarado (linha %d)", n.Name, n.Line)
 }
 
-// exprLine extrai a linha de qualquer nó (para erros).
 func exprLine(x ast.Expr) int {
 	switch n := x.(type) {
 	case *ast.IntConst:
@@ -175,15 +167,13 @@ func exprLine(x ast.Expr) int {
 	}
 }
 
-// lookupMethod acha a assinatura na classe (os herdados já foram copiados
-// pelo BuildEnvs, então a consulta é direta).
+// lookupMethod consulta direto: o BuildEnvs já copiou os herdados.
 func (e *typeEnv) lookupMethod(cls, name string) (*MethodSig, bool) {
 	m, ok := e.tab.Methods[cls][name]
 	return m, ok
 }
 
-// checkDispatch confere chamada dinâmica "recv.f(args)".
-// Receptor ausente (nil) significa self implícito, tipo SELF_TYPE.
+// Receptor nil é self implícito, que entra como SELF_TYPE.
 func (e *typeEnv) checkDispatch(n *ast.Dispatch) (string, error) {
 	recvType := "SELF_TYPE"
 	if n.Receiver != nil {
@@ -218,7 +208,6 @@ func (e *typeEnv) checkDispatch(n *ast.Dispatch) (string, error) {
 	return sig.Return, nil
 }
 
-// checkStaticDispatch confere "recv@T.f(args)".
 func (e *typeEnv) checkStaticDispatch(n *ast.StaticDispatch) (string, error) {
 	recvType, err := e.checkExpr(n.Receiver)
 	if err != nil {
@@ -258,8 +247,8 @@ func (e *typeEnv) checkStaticDispatch(n *ast.StaticDispatch) (string, error) {
 	return sig.Return, nil
 }
 
-// checkAssign confere "nome <- valor": alvo declarado (nunca self),
-// valor conformando com o declarado; o tipo é o do valor ([Assign]).
+// checkAssign segue a regra [ASSIGN] do manual: o valor precisa conformar com
+// o alvo, e o tipo resultante é o do valor, não o do alvo.
 func (e *typeEnv) checkAssign(n *ast.Assign) (string, error) {
 	if n.Target == "self" {
 		return "", fmt.Errorf("atribuição para self é proibida (linha %d)", n.Line)
@@ -278,7 +267,7 @@ func (e *typeEnv) checkAssign(n *ast.Assign) (string, error) {
 	return vt, nil
 }
 
-// checkBlock tipa cada item no mesmo ambiente; vale o tipo do último.
+// O tipo do bloco é o do último item.
 func (e *typeEnv) checkBlock(n *ast.Block) (string, error) {
 	var t string
 	for _, x := range n.Exprs {
@@ -291,7 +280,7 @@ func (e *typeEnv) checkBlock(n *ast.Block) (string, error) {
 	return t, nil
 }
 
-// checkIf confere "if cond then a else b fi": cond Bool, tipo é o join.
+// O tipo do if é o join dos dois ramos; a condição precisa ser Bool.
 func (e *typeEnv) checkIf(n *ast.If) (string, error) {
 	c, err := e.checkExpr(n.Cond)
 	if err != nil {
@@ -311,7 +300,7 @@ func (e *typeEnv) checkIf(n *ast.If) (string, error) {
 	return e.tab.Join(resolve(t, e.current), resolve(f, e.current)), nil
 }
 
-// checkWhile confere "while cond loop corpo pool": cond Bool, tipo Object.
+// while tem tipo Object; a condição precisa ser Bool.
 func (e *typeEnv) checkWhile(n *ast.While) (string, error) {
 	c, err := e.checkExpr(n.Cond)
 	if err != nil {
@@ -326,7 +315,6 @@ func (e *typeEnv) checkWhile(n *ast.While) (string, error) {
 	return "Object", nil
 }
 
-// checkLet confere "let b1, ... in corpo".
 func (e *typeEnv) checkLet(n *ast.Let) (string, error) {
 	vars := map[string]string{}
 	for k, v := range e.vars {
@@ -353,7 +341,6 @@ func (e *typeEnv) checkLet(n *ast.Let) (string, error) {
 	return inner.checkExpr(n.Body)
 }
 
-// checkCase confere "case alvo of ramos esac".
 func (e *typeEnv) checkCase(n *ast.Case) (string, error) {
 	if _, err := e.checkExpr(n.Subject); err != nil {
 		return "", err

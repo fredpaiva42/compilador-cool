@@ -8,8 +8,15 @@ Especificação: Cool Reference Manual (Alex Aiken), Seções 4 a 12 e Figura 1.
 
     go run . examples/demo.cl          # três fases; tokens no stdout, veredito no stderr
     go run . --ast examples/demo.cl    # + árvore em S-expressions no stdout
-    go run . examples/typ_err.cl       # exemplo de erro semântico
+    go run . examples/type_err.cl      # exemplo de erro semântico
+    go run . examples/sem_ok_heranca.cl   # passa: herança, override, dispatch estático
+    go run . examples/sem_erro_dispatch.cl # falha: método fora do tipo estático
     go test ./...                      # suíte completa
+
+Os exemplos `sem_ok_*.cl` (herança, SELF_TYPE, escopos) precisam passar e os
+`sem_erro_*.cl` (override, atributo herdado, dispatch estático) precisam falhar
+com a mensagem registrada no comentário do arquivo; `TestExemplosSemanticos`
+confere os dois lados.
 
 O `main` executa o pipeline nesta ordem: léxico (coleta tokens), barreira
 léxica (`ILLEGAL` aborta antes do parser), sintático (`ParseProgram`),
@@ -41,8 +48,9 @@ semântico (`CheckProgram`), e por fim `OK: N classe(s)` no stderr.
   forma de expressão e o contrato de `Main.main` próprio sem formais
   (Seção 9).
 - `examples/`: `demo.cl` (programa completo, passa as três fases),
-  `hello.cl` e `helloWorld.cl` (programas), `typ_err.cl` (erro semântico),
+  `hello.cl` e `helloWorld.cl` (programas), `type_err.cl` (erro semântico),
   `recovery.cl`, `string_err.cl` e `unterminated.cl` (erros léxicos e
-  sintáticos), e fixtures de etapa (`nested`, `attrs`, `expr1`, `numbers`,
-  `symbols`, `operators`, `keywords`, `strings`).
+  sintáticos), as fixtures de etapa (`nested`, `attrs`, `expr1`, `numbers`,
+  `symbols`, `operators`, `keywords`, `strings`) e os exemplos do semântico
+  (`sem_ok_*` passam, `sem_erro_*` falham de propósito).
 

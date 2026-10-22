@@ -5,9 +5,8 @@ import (
 	"fmt"
 )
 
-// checkDeclaredTypes garante que todo tipo declarado existe
-// e que SELF_TYPE só aparece onde é permitido.
-// Cobre atributos, retornos e formais.
+// checkDeclaredTypes garante que todo tipo declarado existe e que SELF_TYPE
+// só aparece onde é permitido.
 func (t *Table) checkDeclaredTypes() error {
 	known := func(typ string) bool {
 		if typ == "SELF_TYPE" {
@@ -49,8 +48,7 @@ func (t *Table) checkDeclaredTypes() error {
 	return nil
 }
 
-// resolve ancora SELF_TYPE na classe corrente: dentro de C,
-// SELF_TYPE resolve para C. Qualquer outro nome passa intacto.
+// resolve troca SELF_TYPE pela classe corrente; os demais nomes passam intactos.
 func resolve(typ, current string) string {
 	if typ == "SELF_TYPE" {
 		return current

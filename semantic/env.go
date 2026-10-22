@@ -10,7 +10,7 @@ type MethodSig struct {
 	ParamNames []string
 	ParamTypes []string
 	Return     string
-	Owner      string
+	Owner      string // quem declarou: é o que a mensagem de override mostra
 	Line       int
 }
 
@@ -21,16 +21,11 @@ type AttrInfo struct {
 	Line  int
 }
 
-func isBuiltin(name string) bool {
-	switch name {
-	case "Object", "IO", "Int", "String", "Bool":
-		return true
-	}
-	return false
-}
-
+// BuildEnvs monta os ambientes de todas as classes: atributos e assinaturas
+// de métodos, com os herdados já copiados. Roda depois do Build, quando a
+// hierarquia já foi validada.
 func (t *Table) BuildEnvs() error {
-	// 1. Proibido herdar de Int/String/Bool.
+	// 1. Nenhuma classe herda de Int, String ou Bool.
 	for _, info := range t.Classes {
 		if info.Node == nil {
 			continue // básica, sem declaração
@@ -41,7 +36,7 @@ func (t *Table) BuildEnvs() error {
 		}
 	}
 
-	// 2. Métodos das básicas (o resto elas herdam de Object pelo fluxo normal).
+	// 2. Métodos nativos das básicas; os de Object entram no enxerto abaixo.
 	builtinMethods := map[string][]*MethodSig{
 		"Object": {
 			{Name: "abort", Return: "Object", Owner: "Object"},
@@ -81,10 +76,10 @@ func (t *Table) BuildEnvs() error {
 		}
 	}
 
-	// 3. Usuárias em ordem pai-antes-do-filho, copiando os herdados.
+	// 3. Classes do programa em ordem pai-antes-do-filho, copiando os herdados.
 	for _, name := range t.order() {
 		if _, done := t.Methods[name]; done {
-			continue // básica com métodos próprios já registrada
+			continue // já registrada no bloco 2 (básica com métodos próprios)
 		}
 
 		info := t.Classes[name]
