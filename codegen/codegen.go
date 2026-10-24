@@ -28,21 +28,24 @@ const (
 
 // Emitter acumula o texto do modulo em construcao.
 type Emitter struct {
-	b        strings.Builder
-	sem      *semantic.Result
-	level    int                        // unidades de indentacao de dois espacos
-	locals   []string                   // declaracoes (local $l0 i32), uma por let
-	bound    map[*ast.LetBinding]string // cada binding ganha um local proprio
-	vars     map[string]string          // nome visivel -> local ou parametro
-	class    string                     // classe do metodo em emissao
-	labels   int                        // contador de rotulos para o while
-	tags     map[string]int             // classe -> tag
-	scratch  int                        // maior numero de args de despacho ($a0...)
-	depth    int                        // nivel de despacho em emissao ($t0...)
-	idepth   int                        // nivel na pre-passagem
-	maxDepth int                        // maior nivel na funcao (locais $t0...)
-	strings  []string                   // literais na ordem de aparecimento
-	strIndex map[string]int             // literal -> endereco no segmento de dados
+	b         strings.Builder
+	sem       *semantic.Result
+	level     int                        // unidades de indentacao de dois espacos
+	locals    []string                   // declaracoes (local $l0 i32), uma por let
+	bound     map[*ast.LetBinding]string // cada binding ganha um local proprio
+	vars      map[string]string          // nome visivel -> local ou parametro
+	class     string                     // classe do metodo em emissao
+	labels    int                        // contador de rotulos para o while
+	tags      map[string]int             // classe -> tag
+	scratch   int                        // maior numero de args de despacho ($a0...)
+	depth     int                        // nivel de despacho em emissao ($t0...)
+	idepth    int                        // nivel na pre-passagem
+	maxDepth  int                        // maior nivel na funcao (locais $t0...)
+	cdepth    int                        // nivel de case em emissao ($c0...)
+	cidepth   int                        // nivel de case na pre-passagem
+	maxCdepth int                        // maior nivel na funcao (locais $c0...)
+	strings   []string                   // literais na ordem de aparecimento
+	strIndex  map[string]int             // literal -> endereco no segmento de dados
 }
 
 // Generate devolve o modulo WAT completo do programa: preludio do runtime,
@@ -64,10 +67,21 @@ func Generate(prog *ast.Program, sem *semantic.Result) (string, error) {
 			}
 		}
 	}
+	// nomes das classes por ultimo, depois dos literais do programa: assim os
+	// literais ficam nos enderecos ja cobertos pela bateria de testes
+	var names []string
+	for name := range e.tags {
+		names = append(names, name)
+	}
+	sort.Slice(names, func(i, j int) bool { return e.tags[names[i]] < e.tags[names[j]] })
+	for _, name := range names {
+		e.internString(name)
+	}
 	e.b.WriteString(runtime.Prelude())
 	e.objectBuiltins()
 	e.stringBuiltins()
 	e.stringData()
+	e.typeNameBuiltin()
 	for _, c := range prog.Classes {
 		if err := e.constructor(c); err != nil {
 			return "", err
@@ -90,10 +104,9 @@ func Generate(prog *ast.Program, sem *semantic.Result) (string, error) {
 	return e.b.String(), nil
 }
 
-// objectBuiltins sintetiza os metodos de Object implementados no runtime:
-// abort sai com codigo 1 e copy duplica o objeto. type_name fica para o
-// passo 7 e os de IO/String para o 6. Nao colide com override: o metodo do
-// usuario sai como $Classe_metodo, este como $Object_metodo.
+// objectBuiltins sintetiza os metodos de Object: abort sai com codigo 1,
+// copy duplica o objeto e type_name escolhe o nome pela tag. Nao colide com
+// override: o metodo do usuario sai como $Classe_metodo, este como $Object_metodo.
 func (e *Emitter) objectBuiltins() {
 	e.b.WriteString("\n")
 	e.level = 1
@@ -223,6 +236,43 @@ func watEscape(s string) string {
 	return sb.String()
 }
 
+// typeNameBuiltin sintetiza o Object.type_name: ramifica pela tag e devolve
+// o endereco do nome da classe, internado como literal na pre-passagem.
+func (e *Emitter) typeNameBuiltin() {
+	type pair struct {
+		tag  int
+		name string
+	}
+	var ps []pair
+	for name, tag := range e.tags {
+		ps = append(ps, pair{tag, name})
+	}
+	sort.Slice(ps, func(i, j int) bool { return ps[i].tag < ps[j].tag })
+	e.b.WriteString("\n")
+	e.level = 1
+	e.line("(func $Object_type_name (param $self i32) (result i32)")
+	e.level = 2
+	e.line("(block $done (result i32)")
+	e.level++
+	for _, p := range ps {
+		e.line("local.get $self")
+		e.line("i32.load offset=0")
+		e.line("i32.const %d", p.tag)
+		e.line("i32.eq")
+		e.line("(if (then")
+		e.level++
+		e.line("i32.const %d", e.strIndex[p.name])
+		e.line("br $done")
+		e.level--
+		e.line("))")
+	}
+	e.line("unreachable")
+	e.level--
+	e.line(")")
+	e.level = 1
+	e.line(")")
+}
+
 // classTags numera as classes do programa de 6 em diante, em ordem
 // alfabetica: a ordem de declaracao nao serve porque mapa do Go embaralha.
 func classTags(prog *ast.Program) map[string]int {
@@ -337,12 +387,16 @@ func (e *Emitter) scratchDecls() {
 }
 
 // tempDecls declara os temporarios da funcao: $tmp0 (uso interno sem
-// aninhamento), $a0... (args do despacho) e $t0... (um receptor por nivel).
+// aninhamento), $a0... (args do despacho), $t0... (um receptor por nivel de
+// despacho) e $c0... (um sujeito por nivel de case).
 func (e *Emitter) tempDecls() {
 	e.line("(local $tmp0 i32)")
 	e.scratchDecls()
 	for i := 0; i < e.maxDepth; i++ {
 		e.line("(local $t%d i32)", i)
+	}
+	for i := 0; i < e.maxCdepth; i++ {
+		e.line("(local $c%d i32)", i)
 	}
 }
 
@@ -357,6 +411,9 @@ func (e *Emitter) beginScope(class string) {
 	e.depth = 0
 	e.idepth = 0
 	e.maxDepth = 0
+	e.cdepth = 0
+	e.cidepth = 0
+	e.maxCdepth = 0
 }
 
 // constructor emite $C_new: aloca com zeros, poe os padroes e avalia os inits
@@ -492,10 +549,12 @@ func (e *Emitter) allocLocals(x ast.Expr) {
 		}
 		e.leaveDispatch()
 	case *ast.Case:
+		e.enterCase()
 		e.allocLocals(n.Subject)
 		for _, b := range n.Branches {
 			e.allocLocals(b.Body)
 		}
+		e.leaveCase()
 	}
 }
 
@@ -561,6 +620,8 @@ func (e *Emitter) expr(x ast.Expr) error {
 		return e.dispatch(n)
 	case *ast.StaticDispatch:
 		return e.staticDispatch(n)
+	case *ast.Case:
+		return e.caseExpr(n)
 	default:
 		return fmt.Errorf("expressao ainda nao suportada (%T)", x)
 	}
@@ -651,6 +712,18 @@ func (e *Emitter) enterDispatch() {
 
 func (e *Emitter) leaveDispatch() {
 	e.idepth--
+}
+
+// enterCase desce um nivel: cases aninhados ganham temporarios proprios.
+func (e *Emitter) enterCase() {
+	e.cidepth++
+	if e.cidepth > e.maxCdepth {
+		e.maxCdepth = e.cidepth
+	}
+}
+
+func (e *Emitter) leaveCase() {
+	e.cidepth--
 }
 
 // voidCheck guarda o receptor no temporario do nivel e explode se for void:
@@ -765,14 +838,66 @@ func (e *Emitter) staticDispatch(n *ast.StaticDispatch) error {
 	return nil
 }
 
-// builtinTarget resolve a funcao WAT do metodo do dono: abort e copy tem
-// sinteticas no proprio emissor; type_name e passo 7 e o resto das basicas
-// (IO, String) e passo 6.
-func (e *Emitter) builtinTarget(owner, method string) (string, error) {
-	if method == "type_name" {
-		return "", fmt.Errorf("type_name ainda nao suportado (passo 7)")
+// caseExpr avalia o sujeito, trava void, e testa os ramos na ordem: o
+// primeiro cuja lista de tags contem a tag do sujeito vence. Sem ramo e erro
+// de execucao. A variavel do ramo aponta para o temporario do nivel, com o
+// sombreamento restaurado depois.
+func (e *Emitter) caseExpr(n *ast.Case) error {
+	c := e.cdepth
+	e.cdepth++
+	if err := e.expr(n.Subject); err != nil {
+		return err
 	}
-	if owner == "Object" && (method == "abort" || method == "copy") {
+	e.line("local.set $c%d", c)
+	e.line("local.get $c%d", c)
+	e.line("i32.eqz")
+	e.line("(if (then")
+	e.level++
+	e.line("unreachable")
+	e.level--
+	e.line("))")
+	e.line("(block $done (result i32)")
+	e.level++
+	for _, b := range n.Branches {
+		subs := e.subclasses(b.Type)
+		e.line("local.get $c%d", c)
+		e.line("i32.load offset=0")
+		e.line("i32.const %d", e.tags[subs[0]])
+		e.line("i32.eq")
+		for _, s := range subs[1:] {
+			e.line("local.get $c%d", c)
+			e.line("i32.load offset=0")
+			e.line("i32.const %d", e.tags[s])
+			e.line("i32.eq")
+			e.line("i32.or")
+		}
+		e.line("(if (then")
+		e.level++
+		prev, ok := e.vars[b.Name]
+		e.vars[b.Name] = fmt.Sprintf("$c%d", c)
+		if err := e.expr(b.Body); err != nil {
+			return err
+		}
+		if ok {
+			e.vars[b.Name] = prev
+		} else {
+			delete(e.vars, b.Name)
+		}
+		e.line("br $done")
+		e.level--
+		e.line("))")
+	}
+	e.line("unreachable")
+	e.level--
+	e.line(")")
+	e.cdepth--
+	return nil
+}
+
+// builtinTarget resolve a funcao WAT do metodo do dono: abort, copy e
+// type_name tem sinteticas no emissor; o resto cai no $Dono_metodo.
+func (e *Emitter) builtinTarget(owner, method string) (string, error) {
+	if owner == "Object" && (method == "abort" || method == "copy" || method == "type_name") {
 		return "$Object_" + method, nil
 	}
 	// IO e String tem sinteticas no emissor; o resto das basicas nao declara
