@@ -11,8 +11,8 @@ import (
 	"cool/token"
 )
 
-// parseAndCheck roda o pipeline do lexico ao semantico e devolve a AST conferida.
-func parseAndCheck(t *testing.T, src string) *ast.Program {
+// parseAndCheck roda o pipeline do lexico ao semantico e devolve a AST e a analise.
+func parseAndCheck(t *testing.T, src string) (*ast.Program, *semantic.Result) {
 	t.Helper()
 	l := lexer.New(src)
 	var toks []token.Token
@@ -27,24 +27,72 @@ func parseAndCheck(t *testing.T, src string) *ast.Program {
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	if err := semantic.CheckProgram(prog); err != nil {
+	res, err := semantic.Analyze(prog)
+	if err != nil {
 		t.Fatalf("semantico: %v", err)
 	}
-	return prog
+	return prog, res
 }
 
-func TestMinimalModule(t *testing.T) {
-	wat, err := Generate(parseAndCheck(t, "class Main { main() : Int { 42 }; };"))
+// generate roda o emissor inteiro sobre um programa COOL.
+func generate(t *testing.T, src string) string {
+	t.Helper()
+	prog, res := parseAndCheck(t, src)
+	wat, err := Generate(prog, res)
 	if err != nil {
 		t.Fatalf("gerar: %v", err)
 	}
+	return wat
+}
+
+// ops devolve so as instrucoes do corpo de Main.main, sem a declaracao da
+// funcao nem o fechamento. O preludio do runtime nao entra: ele e fixo.
+func ops(t *testing.T, src string) []string {
+	t.Helper()
+	wat := generate(t, src)
+	i := strings.Index(wat, "(func $Main_main")
+	if i < 0 {
+		t.Fatalf("modulo sem Main.main:\n%s", wat)
+	}
+	j := strings.Index(wat[i:], "\n  )")
+	if j < 0 {
+		t.Fatalf("nao achei o fim de Main.main:\n%s", wat)
+	}
+	var out []string
+	for _, ln := range strings.Split(wat[i:i+j], "\n") {
+		ln = strings.TrimSpace(ln)
+		if ln == "" || strings.HasPrefix(ln, "(func") {
+			continue
+		}
+		out = append(out, ln)
+	}
+	return out
+}
+
+// checkOps compara a sequencia de instrucoes geradas com a esperada.
+func checkOps(t *testing.T, src string, want ...string) {
+	t.Helper()
+	got := ops(t, src)
+	if len(got) != len(want) {
+		t.Fatalf("instrucoes = %v, quer %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("instrucoes = %v, quer %v", got, want)
+		}
+	}
+}
+
+func TestMinimalModule(t *testing.T) {
+	wat := generate(t, "class Main { main() : Int { 42 }; };")
 	pieces := []string{
 		"(module",
 		"(func $Main_main (param $self i32) (result i64)",
-		"(i64.const 42)",
+		"i64.const 42",
 		`(func (export "_start")`,
-		"(call $putint (call $Main_main (i32.const 0)))",
-		"(call $proc_exit (i32.const 0))",
+		"call $Main_main",
+		"call $putint",
+		"call $proc_exit",
 	}
 	for _, piece := range pieces {
 		if !strings.Contains(wat, piece) {
@@ -56,11 +104,53 @@ func TestMinimalModule(t *testing.T) {
 	}
 }
 
+func TestArithmeticPrecedence(t *testing.T) {
+	// 1 + 2 * 3 empilha o 1, depois o 2, o 3 e a multiplicacao, e so no fim soma
+	checkOps(t, "class Main { main() : Int { 1 + 2 * 3 }; };",
+		"i64.const 1", "i64.const 2", "i64.const 3", "i64.mul", "i64.add")
+}
+
+func TestArithmeticDivisionAndSubtraction(t *testing.T) {
+	checkOps(t, "class Main { main() : Int { 100 / 2 - 8 }; };",
+		"i64.const 100", "i64.const 2", "i64.div_s", "i64.const 8", "i64.sub")
+}
+
+func TestComparison(t *testing.T) {
+	checkOps(t, "class Main { main() : Bool { 1 < 2 }; };",
+		"i64.const 1", "i64.const 2", "i64.lt_s")
+	checkOps(t, "class Main { main() : Bool { 1 <= 2 }; };",
+		"i64.const 1", "i64.const 2", "i64.le_s")
+}
+
+func TestNegIsSubtraction(t *testing.T) {
+	// o WASM nao tem negacao de inteiro
+	checkOps(t, "class Main { main() : Int { ~5 }; };",
+		"i64.const 0", "i64.const 5", "i64.sub")
+}
+
+func TestNotIsEqz(t *testing.T) {
+	checkOps(t, "class Main { main() : Bool { not true }; };",
+		"i32.const 1", "i32.eqz")
+}
+
+func TestEqualityInt(t *testing.T) {
+	checkOps(t, "class Main { main() : Bool { 1 = 2 }; };",
+		"i64.const 1", "i64.const 2", "i64.eq")
+}
+
+func TestEqualityBool(t *testing.T) {
+	// Bool e i32, entao a comparacao e i32.eq
+	checkOps(t, "class Main { main() : Bool { true = false }; };",
+		"i32.const 1", "i32.const 0", "i32.eq")
+}
+
+func TestBlockDropsAllButLast(t *testing.T) {
+	checkOps(t, "class Main { main() : Int { { 1; 2; 3; } }; };",
+		"i64.const 1", "drop", "i64.const 2", "drop", "i64.const 3")
+}
+
 func TestMainNonIntNotPrinted(t *testing.T) {
-	wat, err := Generate(parseAndCheck(t, "class Main { main() : Bool { true }; };"))
-	if err != nil {
-		t.Fatalf("gerar: %v", err)
-	}
+	wat := generate(t, "class Main { main() : Bool { true }; };")
 	// o preludio contem a definicao de $putint, entao a checagem e no _start
 	i := strings.Index(wat, `(func (export "_start")`)
 	if i < 0 {
@@ -69,13 +159,14 @@ func TestMainNonIntNotPrinted(t *testing.T) {
 	if strings.Contains(wat[i:], "putint") {
 		t.Error("resultado que nao e Int nao deve ser impresso")
 	}
-	if !strings.Contains(wat[i:], "(drop (call $Main_main") {
+	if !strings.Contains(wat[i:], "drop") {
 		t.Error("resultado descartado deveria aparecer como drop")
 	}
 }
 
 func TestUnsupportedExpression(t *testing.T) {
-	_, err := Generate(parseAndCheck(t, "class Main { main() : Int { 1 + 2 }; };"))
+	prog, res := parseAndCheck(t, `class Main { main() : Object { "oi" }; };`)
+	_, err := Generate(prog, res)
 	if err == nil {
 		t.Fatal("esperava erro para expressao ainda nao suportada")
 	}

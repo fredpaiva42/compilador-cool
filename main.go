@@ -65,13 +65,14 @@ func main() {
 		fmt.Println(ast.DumpProgram(prog))
 	}
 
-	if err := semantic.CheckProgram(prog); err != nil {
+	res, err := semantic.Analyze(prog)
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "erro semantico: %v\n", err)
 		os.Exit(1)
 	}
 
 	if flag == "--wat" {
-		wat, err := codegen.Generate(prog)
+		wat, err := codegen.Generate(prog, res)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "erro na geracao: %v\n", err)
 			os.Exit(1)
