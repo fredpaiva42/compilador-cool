@@ -8,7 +8,12 @@
 ;; 2048 strings literais (segmentos de dados)
 ;; 65536.. heap (objetos), cresce para cima
 ;;
-;; Tipos: valores de Int são i64; endereços, tags e booleanos são i32.
+;; Objetos: todo valor COOL e um endereco i32 (0 = void). Cabecalho de 8 bytes:
+;; +0 tag da classe, +4 tamanho total. Int: +8 valor i64 (16 bytes).
+;; Bool: +8 valor i32 (12 bytes). String: +8 bytes (12 + tamanho).
+;; Objeto de usuario: a partir de +8, um campo de 8 bytes por atributo.
+;; Tags: Object=1, IO=2, Int=3, String=4, Bool=5; as do programa vao de 6
+;; em ordem alfabetica (o emissor calcula em classTags).
 
 ;; >>> RUNTIME (o emissor copia daqui)
 (module
@@ -262,6 +267,75 @@
     )
     (local.get $v)
   )
+
+  ;; obj_new(tag, size): aloca, zera e carimba tag e tamanho
+  (func $obj_new (param $tag i32) (param $size i32) (result i32)
+    (local $p i32)
+    (local.set $p
+      (call $alloc
+        (local.get $size)))
+    (memory.fill
+      (local.get $p)
+      (i32.const 0)
+      (local.get $size))
+    (i32.store
+      (local.get $p)
+      (local.get $tag))
+    (i32.store offset=4
+      (local.get $p)
+      (local.get $size))
+    (local.get $p))
+
+  ;; new_int(v): encaixota um i64 num objeto Int
+  (func $new_int (param $v i64) (result i32)
+    (local $p i32)
+    (local.set $p
+      (call $obj_new
+        (i32.const 3)
+        (i32.const 16)))
+    (i64.store offset=8
+      (local.get $p)
+      (local.get $v))
+    (local.get $p))
+
+  ;; new_bool(v): encaixota um i32 num objeto Bool
+  (func $new_bool (param $v i32) (result i32)
+    (local $p i32)
+    (local.set $p
+      (call $obj_new
+        (i32.const 5)
+        (i32.const 12)))
+    (i32.store offset=8
+      (local.get $p)
+      (local.get $v))
+    (local.get $p))
+
+  ;; new_str_empty: String vazia (o passo 6 poe os literais aqui)
+  (func $new_str_empty (result i32)
+    (call $obj_new
+      (i32.const 4)
+      (i32.const 12)))
+
+  ;; copy_obj: copia rasa, que o Object.copy usa no passo 5
+  (func $copy_obj (param $src i32) (result i32)
+    (local $size i32)
+    (local $dst i32)
+    (local.set $size
+      (i32.load offset=4
+        (local.get $src)))
+    (local.set $dst
+      (call $alloc
+        (local.get $size)))
+    (memory.copy
+      (local.get $dst)
+      (local.get $src)
+      (local.get $size))
+    (local.get $dst))
+
+  ;; abort: o Object.abort usa no passo 5 (sai com codigo 1)
+  (func $abort
+    (call $proc_exit
+      (i32.const 1)))
   ;; <<< RUNTIME (ate aqui)
 
   ;; mensagens e literais
