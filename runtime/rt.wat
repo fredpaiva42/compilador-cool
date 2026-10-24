@@ -332,10 +332,197 @@
       (local.get $size))
     (local.get $dst))
 
-  ;; abort: o Object.abort usa no passo 5 (sai com codigo 1)
+  ;; abort: o Object.abort usa (sai com codigo 1)
   (func $abort
     (call $proc_exit
       (i32.const 1)))
+
+  ;; str_concat(a, b): junta os bytes num objeto novo
+  (func $str_concat (param $a i32) (param $b i32) (result i32)
+    (local $la i32)
+    (local $lb i32)
+    (local $p i32)
+    (local.set $la
+      (i32.load offset=4
+        (local.get $a)))
+    (local.set $lb
+      (i32.load offset=4
+        (local.get $b)))
+    (local.set $p
+      (call $obj_new
+        (i32.const 4)
+        (i32.add
+          (i32.const 12)
+          (i32.add
+            (local.get $la)
+            (local.get $lb)))))
+    (i32.store offset=4
+      (local.get $p)
+      (i32.add
+        (local.get $la)
+        (local.get $lb)))
+    (memory.copy
+      (i32.add
+        (local.get $p)
+        (i32.const 8))
+      (i32.add
+        (local.get $a)
+        (i32.const 8))
+      (local.get $la))
+    (memory.copy
+      (i32.add
+        (i32.add
+          (local.get $p)
+          (i32.const 8))
+        (local.get $la))
+      (i32.add
+        (local.get $b)
+        (i32.const 8))
+      (local.get $lb))
+    (local.get $p))
+
+  ;; str_substr(s, i, l): fatia com indices 0-based; fora do alcance aborta
+  (func $str_substr (param $s i32) (param $i i64) (param $l i64) (result i32)
+    (local $len i32)
+    (local $p i32)
+    (local.set $len
+      (i32.load offset=4
+        (local.get $s)))
+    (if
+      (i32.or
+        (i64.lt_s
+          (local.get $i)
+          (i64.const 0))
+        (i32.or
+          (i64.lt_s
+            (local.get $l)
+            (i64.const 0))
+          (i64.gt_u
+            (i64.add
+              (local.get $i)
+              (local.get $l))
+            (i64.extend_i32_u
+              (local.get $len)))))
+      (then
+        (call $abort)))
+    (local.set $p
+      (call $obj_new
+        (i32.const 4)
+        (i32.add
+          (i32.const 12)
+          (i32.wrap_i64
+            (local.get $l)))))
+    (i32.store offset=4
+      (local.get $p)
+      (i32.wrap_i64
+        (local.get $l)))
+    (memory.copy
+      (i32.add
+        (local.get $p)
+        (i32.const 8))
+      (i32.add
+        (i32.add
+          (local.get $s)
+          (i32.const 8))
+        (i32.wrap_i64
+          (local.get $i)))
+      (i32.wrap_i64
+        (local.get $l)))
+    (local.get $p))
+
+  ;; str_eq(a, b): 1 se mesmo tamanho e mesmos bytes, 0 se nao
+  (func $str_eq (param $a i32) (param $b i32) (result i32)
+    (local $la i32)
+    (local $lb i32)
+    (local $i i32)
+    (if
+      (i32.eq
+        (local.get $a)
+        (local.get $b))
+      (then
+        (return
+          (i32.const 1))))
+    (local.set $la
+      (i32.load offset=4
+        (local.get $a)))
+    (local.set $lb
+      (i32.load offset=4
+        (local.get $b)))
+    (if
+      (i32.ne
+        (local.get $la)
+        (local.get $lb))
+      (then
+        (return
+          (i32.const 0))))
+    (local.set $i
+      (i32.const 0))
+    (block $fim
+      (loop $volta
+        (br_if $fim
+          (i32.ge_u
+            (local.get $i)
+            (local.get $la)))
+        (if
+          (i32.ne
+            (i32.load8_u
+              (i32.add
+                (i32.add
+                  (local.get $a)
+                  (i32.const 8))
+                (local.get $i)))
+            (i32.load8_u
+              (i32.add
+                (i32.add
+                  (local.get $b)
+                  (i32.const 8))
+                (local.get $i))))
+          (then
+            (return
+              (i32.const 0))))
+        (local.set $i
+          (i32.add
+            (local.get $i)
+            (i32.const 1)))
+        (br $volta)))
+    (i32.const 1))
+
+  ;; io_out_string(s): imprime os bytes do objeto
+  (func $io_out_string (param $s i32)
+    (call $putstr
+      (i32.add
+        (local.get $s)
+        (i32.const 8))
+      (i32.load offset=4
+        (local.get $s))))
+
+  ;; io_out_int(v): imprime o i64 desembrulhado
+  (func $io_out_int (param $v i64)
+    (call $putint
+      (local.get $v)))
+
+  ;; io_in_string: le a linha para um objeto novo (o manual exclui o \n)
+  (func $io_in_string (result i32)
+    (local $p i32)
+    (local $n i32)
+    (local.set $p
+      (call $obj_new
+        (i32.const 4)
+        (i32.const 1036)))
+    (local.set $n
+      (call $read_line
+        (i32.add
+          (local.get $p)
+          (i32.const 8))
+        (i32.const 1024)))
+    (i32.store offset=4
+      (local.get $p)
+      (local.get $n))
+    (local.get $p))
+
+  ;; io_in_int: le o inteiro da entrada (o runtime descarta o resto da linha)
+  (func $io_in_int (result i64)
+    (call $read_int))
   ;; <<< RUNTIME (ate aqui)
 
   ;; mensagens e literais

@@ -28,24 +28,46 @@ const (
 
 // Emitter acumula o texto do modulo em construcao.
 type Emitter struct {
-	b       strings.Builder
-	sem     *semantic.Result
-	level   int                        // unidades de indentacao de dois espacos
-	locals  []string                   // declaracoes (local $l0 i32), uma por let
-	bound   map[*ast.LetBinding]string // cada binding ganha um local proprio
-	vars    map[string]string          // nome visivel -> local ou parametro
-	class   string                     // classe do metodo em emissao
-	labels  int                        // contador de rotulos para o while
-	tags    map[string]int             // classe -> tag
-	scratch int                        // maior numero de args de despacho ($a0...)
+	b        strings.Builder
+	sem      *semantic.Result
+	level    int                        // unidades de indentacao de dois espacos
+	locals   []string                   // declaracoes (local $l0 i32), uma por let
+	bound    map[*ast.LetBinding]string // cada binding ganha um local proprio
+	vars     map[string]string          // nome visivel -> local ou parametro
+	class    string                     // classe do metodo em emissao
+	labels   int                        // contador de rotulos para o while
+	tags     map[string]int             // classe -> tag
+	scratch  int                        // maior numero de args de despacho ($a0...)
+	depth    int                        // nivel de despacho em emissao ($t0...)
+	idepth   int                        // nivel na pre-passagem
+	maxDepth int                        // maior nivel na funcao (locais $t0...)
+	strings  []string                   // literais na ordem de aparecimento
+	strIndex map[string]int             // literal -> endereco no segmento de dados
 }
 
 // Generate devolve o modulo WAT completo do programa: preludio do runtime,
 // construtores, funcoes dos metodos e _start.
 func Generate(prog *ast.Program, sem *semantic.Result) (string, error) {
-	e := &Emitter{sem: sem, tags: classTags(prog)}
+	e := &Emitter{sem: sem, tags: classTags(prog), strIndex: map[string]int{},
+		bound: map[*ast.LetBinding]string{}, vars: map[string]string{}}
+	// pre-passagem: os literais vao para os dados antes das funcoes, entao
+	// sao coletados aqui; locals e scratch sao refeitos por funcao depois.
+	for _, c := range prog.Classes {
+		for _, f := range c.Features {
+			switch n := f.(type) {
+			case *ast.Method:
+				e.allocLocals(n.Body)
+			case *ast.Attribute:
+				if n.HasInit {
+					e.allocLocals(n.Init)
+				}
+			}
+		}
+	}
 	e.b.WriteString(runtime.Prelude())
 	e.objectBuiltins()
+	e.stringBuiltins()
+	e.stringData()
 	for _, c := range prog.Classes {
 		if err := e.constructor(c); err != nil {
 			return "", err
@@ -87,6 +109,118 @@ func (e *Emitter) objectBuiltins() {
 	e.line("call $copy_obj")
 	e.level = 1
 	e.line(")")
+}
+
+// stringBuiltins sintetiza os metodos de String e IO sobre os primitivos do
+// runtime: length le o tamanho, concat/substr delegam, out_string/out_int
+// imprimem e devolvem o self, e in_string/in_int constroem o objeto lido.
+func (e *Emitter) stringBuiltins() {
+	e.b.WriteString("\n")
+	e.level = 1
+	e.line("(func $String_length (param $self i32) (result i32)")
+	e.level = 2
+	e.line("local.get $self")
+	e.line("i32.load offset=4")
+	e.line("i64.extend_i32_u")
+	e.line("call $new_int")
+	e.level = 1
+	e.line(")")
+	e.line("(func $String_concat (param $self i32) (param $s i32) (result i32)")
+	e.level = 2
+	e.line("local.get $self")
+	e.line("local.get $s")
+	e.line("call $str_concat")
+	e.level = 1
+	e.line(")")
+	e.line("(func $String_substr (param $self i32) (param $i i32) (param $l i32) (result i32)")
+	e.level = 2
+	e.line("local.get $self")
+	e.line("local.get $i")
+	e.unboxInt()
+	e.line("local.get $l")
+	e.unboxInt()
+	e.line("call $str_substr")
+	e.level = 1
+	e.line(")")
+	e.line("(func $IO_out_string (param $self i32) (param $x i32) (result i32)")
+	e.level = 2
+	e.line("local.get $x")
+	e.line("call $io_out_string")
+	e.line("local.get $self")
+	e.level = 1
+	e.line(")")
+	e.line("(func $IO_out_int (param $self i32) (param $x i32) (result i32)")
+	e.level = 2
+	e.line("local.get $x")
+	e.unboxInt()
+	e.line("call $io_out_int")
+	e.line("local.get $self")
+	e.level = 1
+	e.line(")")
+	e.line("(func $IO_in_string (param $self i32) (result i32)")
+	e.level = 2
+	e.line("call $io_in_string")
+	e.level = 1
+	e.line(")")
+	e.line("(func $IO_in_int (param $self i32) (result i32)")
+	e.level = 2
+	e.line("call $io_in_int")
+	e.line("call $new_int")
+	e.level = 1
+	e.line(")")
+}
+
+// internString registra o literal uma vez; o endereco sai no stringData.
+func (e *Emitter) internString(s string) {
+	if _, ok := e.strIndex[s]; ok {
+		return
+	}
+	e.strIndex[s] = -1
+	e.strings = append(e.strings, s)
+}
+
+// stringData despeja os literais empacotados a partir de 2048: cada objeto
+// estatico tem tag, tamanho e bytes, e o proximo comeca onde acaba o anterior.
+func (e *Emitter) stringData() {
+	addr := 2048
+	e.level = 1
+	for _, s := range e.strings {
+		e.strIndex[s] = addr
+		e.line(`(data (i32.const %d) "%s")`, addr, watEscape(strObject(s)))
+		addr += 8 + len(s)
+	}
+}
+
+// strObject monta os bytes do objeto estatico: tag 4, tamanho e conteudo.
+func strObject(s string) string {
+	n := len(s)
+	return string([]byte{4, 0, 0, 0, byte(n), byte(n >> 8), byte(n >> 16), byte(n >> 24)}) + s
+}
+
+// watEscape converte bytes para escapes do WAT (o lexer guarda bytes reais).
+func watEscape(s string) string {
+	var sb strings.Builder
+	for i := 0; i < len(s); i++ {
+		switch c := s[i]; c {
+		case '"':
+			sb.WriteString(`\"`)
+		case '\\':
+			sb.WriteString(`\\`)
+		case '\n':
+			sb.WriteString(`\n`)
+		case '\t':
+			sb.WriteString(`\t`)
+		case '\r':
+			sb.WriteString(`\r`)
+		default:
+			if c >= 0x20 && c < 0x7f {
+				sb.WriteByte(c)
+			} else {
+				fmt.Fprintf(&sb, `\%02x`, c)
+			}
+		}
+	}
+	return sb.String()
 }
 
 // classTags numera as classes do programa de 6 em diante, em ordem
@@ -182,8 +316,7 @@ func (e *Emitter) method(c *ast.Class, m *ast.Method) error {
 	decl += " (result i32)"
 	e.line("%s", decl)
 	e.level = 2
-	e.line("(local $tmp0 i32)")
-	e.scratchDecls()
+	e.tempDecls()
 	for _, d := range e.locals {
 		e.line("%s", d)
 	}
@@ -203,6 +336,16 @@ func (e *Emitter) scratchDecls() {
 	}
 }
 
+// tempDecls declara os temporarios da funcao: $tmp0 (uso interno sem
+// aninhamento), $a0... (args do despacho) e $t0... (um receptor por nivel).
+func (e *Emitter) tempDecls() {
+	e.line("(local $tmp0 i32)")
+	e.scratchDecls()
+	for i := 0; i < e.maxDepth; i++ {
+		e.line("(local $t%d i32)", i)
+	}
+}
+
 // beginScope zera o estado por funcao: labels do WAT so valem dentro dela.
 func (e *Emitter) beginScope(class string) {
 	e.locals = nil
@@ -211,6 +354,9 @@ func (e *Emitter) beginScope(class string) {
 	e.class = class
 	e.labels = 0
 	e.scratch = 0
+	e.depth = 0
+	e.idepth = 0
+	e.maxDepth = 0
 }
 
 // constructor emite $C_new: aloca com zeros, poe os padroes e avalia os inits
@@ -231,8 +377,7 @@ func (e *Emitter) constructor(c *ast.Class) error {
 	e.line("(func $%s_new (result i32)", c.Name)
 	e.level = 2
 	e.line("(local $self i32)")
-	e.line("(local $tmp0 i32)")
-	e.scratchDecls()
+	e.tempDecls()
 	for _, d := range e.locals {
 		e.line("%s", d)
 	}
@@ -300,6 +445,8 @@ func (e *Emitter) allocLocals(x ast.Expr) {
 		e.allocLocals(n.Body)
 	case *ast.New:
 		// new nao tem subexpressoes
+	case *ast.StringConst:
+		e.internString(n.Value)
 	case *ast.Block:
 		for _, sub := range n.Exprs {
 			e.allocLocals(sub)
@@ -323,6 +470,7 @@ func (e *Emitter) allocLocals(x ast.Expr) {
 	case *ast.Assign:
 		e.allocLocals(n.Value)
 	case *ast.Dispatch:
+		e.enterDispatch()
 		if n.Receiver != nil {
 			e.allocLocals(n.Receiver)
 		}
@@ -332,7 +480,9 @@ func (e *Emitter) allocLocals(x ast.Expr) {
 		if len(n.Args) > e.scratch {
 			e.scratch = len(n.Args)
 		}
+		e.leaveDispatch()
 	case *ast.StaticDispatch:
+		e.enterDispatch()
 		e.allocLocals(n.Receiver)
 		for _, a := range n.Args {
 			e.allocLocals(a)
@@ -340,6 +490,7 @@ func (e *Emitter) allocLocals(x ast.Expr) {
 		if len(n.Args) > e.scratch {
 			e.scratch = len(n.Args)
 		}
+		e.leaveDispatch()
 	case *ast.Case:
 		e.allocLocals(n.Subject)
 		for _, b := range n.Branches {
@@ -366,6 +517,8 @@ func (e *Emitter) expr(x ast.Expr) error {
 		return e.object(n)
 	case *ast.New:
 		return e.newObj(n)
+	case *ast.StringConst:
+		e.line("i32.const %d", e.strIndex[n.Value])
 	case *ast.Neg:
 		// o WASM nao tem negacao de inteiro: ~x e 0 - x, com unboxing
 		e.line("i64.const 0")
@@ -487,11 +640,25 @@ func (e *Emitter) newSelf() error {
 	return nil
 }
 
-// voidCheck guarda o receptor no temporario e explode se for void: despacho
-// sobre void e erro de execucao pelo manual.
-func (e *Emitter) voidCheck() {
-	e.line("local.set $tmp0")
-	e.line("local.get $tmp0")
+// enterDispatch desce um nivel: despachos aninhados (f(g())) ganham
+// temporarios proprios, sem pisar no receptor do de fora.
+func (e *Emitter) enterDispatch() {
+	e.idepth++
+	if e.idepth > e.maxDepth {
+		e.maxDepth = e.idepth
+	}
+}
+
+func (e *Emitter) leaveDispatch() {
+	e.idepth--
+}
+
+// voidCheck guarda o receptor no temporario do nivel e explode se for void:
+// despacho sobre void e erro de execucao pelo manual. O nivel vem de fora
+// porque o incremento acontece antes da emissao do receptor.
+func (e *Emitter) voidCheck(t int) {
+	e.line("local.set $t%d", t)
+	e.line("local.get $t%d", t)
 	e.line("i32.eqz")
 	e.line("(if (then")
 	e.level++
@@ -504,6 +671,8 @@ func (e *Emitter) voidCheck() {
 // ramifica pela tag ate a implementacao do dono (a mais especifica herdada).
 // Os args vao para os temporarios para serem avaliados uma so vez.
 func (e *Emitter) dispatch(n *ast.Dispatch) error {
+	d := e.depth
+	e.depth++
 	static := "SELF_TYPE"
 	if n.Receiver == nil {
 		e.line("local.get $self")
@@ -519,7 +688,12 @@ func (e *Emitter) dispatch(n *ast.Dispatch) error {
 	if _, ok := e.sem.Tab.Methods[static][n.Method]; !ok {
 		return fmt.Errorf("metodo %s inexistente em %s", n.Method, static)
 	}
-	e.voidCheck()
+	e.voidCheck(d)
+	for _, a := range n.Args {
+		if err := e.expr(a); err != nil {
+			return err
+		}
+	}
 	for i := len(n.Args) - 1; i >= 0; i-- {
 		e.line("local.set $a%d", i)
 	}
@@ -531,13 +705,13 @@ func (e *Emitter) dispatch(n *ast.Dispatch) error {
 		if err != nil {
 			return err
 		}
-		e.line("local.get $tmp0")
+		e.line("local.get $t%d", d)
 		e.line("i32.load offset=0")
 		e.line("i32.const %d", e.tags[s])
 		e.line("i32.eq")
 		e.line("(if (then")
 		e.level++
-		e.line("local.get $tmp0")
+		e.line("local.get $t%d", d)
 		for i := range n.Args {
 			e.line("local.get $a%d", i)
 		}
@@ -549,12 +723,15 @@ func (e *Emitter) dispatch(n *ast.Dispatch) error {
 	e.line("unreachable")
 	e.level--
 	e.line(")")
+	e.depth--
 	return nil
 }
 
 // staticDispatch emite a chamada com tipo estatico: trava void e chama direto
 // a implementacao do dono, sem ramificar pela tag.
 func (e *Emitter) staticDispatch(n *ast.StaticDispatch) error {
+	d := e.depth
+	e.depth++
 	if err := e.expr(n.Receiver); err != nil {
 		return err
 	}
@@ -570,20 +747,21 @@ func (e *Emitter) staticDispatch(n *ast.StaticDispatch) error {
 	if err != nil {
 		return err
 	}
-	e.line("local.tee $tmp0")
+	e.line("local.tee $t%d", d)
 	e.line("i32.eqz")
 	e.line("(if (then")
 	e.level++
 	e.line("unreachable")
 	e.level--
 	e.line("))")
-	e.line("local.get $tmp0")
+	e.line("local.get $t%d", d)
 	for _, a := range n.Args {
 		if err := e.expr(a); err != nil {
 			return err
 		}
 	}
 	e.line("call %s", target)
+	e.depth--
 	return nil
 }
 
@@ -591,15 +769,14 @@ func (e *Emitter) staticDispatch(n *ast.StaticDispatch) error {
 // sinteticas no proprio emissor; type_name e passo 7 e o resto das basicas
 // (IO, String) e passo 6.
 func (e *Emitter) builtinTarget(owner, method string) (string, error) {
+	if method == "type_name" {
+		return "", fmt.Errorf("type_name ainda nao suportado (passo 7)")
+	}
 	if owner == "Object" && (method == "abort" || method == "copy") {
 		return "$Object_" + method, nil
 	}
-	if info, ok := e.sem.Tab.Classes[owner]; ok && info.Node == nil {
-		if method == "type_name" {
-			return "", fmt.Errorf("type_name ainda nao suportado (passo 7)")
-		}
-		return "", fmt.Errorf("metodo %s de %s ainda nao suportado (passo 6)", method, owner)
-	}
+	// IO e String tem sinteticas no emissor; o resto das basicas nao declara
+	// metodo proprio, entao cair aqui com Node nil seria defeito interno.
 	return "$" + owner + "_" + method, nil
 }
 
@@ -692,7 +869,11 @@ func (e *Emitter) equality(n *ast.BinOp) error {
 		if err := e.expr(n.Right); err != nil {
 			return err
 		}
-		e.line("i32.eq")
+		if e.sem.Types[n.Left] == "String" {
+			e.line("call $str_eq")
+		} else {
+			e.line("i32.eq")
+		}
 	}
 	e.line("call $new_bool")
 	return nil
@@ -841,18 +1022,21 @@ func (e *Emitter) isVoid(n *ast.IsVoid) error {
 }
 
 // start monta a entrada do programa, que o manual define como (new Main).main().
-// O resultado de main sai impresso com putint quando e Int (instrumentacao
-// que some quando o out_int do IO estiver pronto) e descartado se nao e.
+// O resultado de main sai pelo out_int quando e Int e e descartado se nao e.
 func (e *Emitter) start(prog *ast.Program) {
 	e.b.WriteString("\n")
 	e.level = 1
 	e.line(`(func (export "_start")`)
 	e.level = 2
+	e.line("(local $tmp0 i32)")
 	e.line("call $Main_new")
 	e.line("call $Main_main")
 	if mainReturnType(prog) == "Int" {
-		e.line("i64.load offset=8")
-		e.line("call $putint")
+		e.line("local.set $tmp0")
+		e.line("call $Main_new")
+		e.line("local.get $tmp0")
+		e.line("call $IO_out_int")
+		e.line("drop")
 	} else {
 		e.line("drop")
 	}

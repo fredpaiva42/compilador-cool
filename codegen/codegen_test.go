@@ -90,13 +90,14 @@ func TestMinimalModule(t *testing.T) {
 		"(module",
 		"(func $Main_new (result i32)",
 		"(func $Main_main (param $self i32) (result i32)",
+		"(func $String_length (param $self i32) (result i32)",
+		"(func $IO_out_int (param $self i32) (param $x i32) (result i32)",
 		"i64.const 42",
 		"call $new_int",
 		`(func (export "_start")`,
 		"call $Main_new",
 		"call $Main_main",
-		"i64.load offset=8",
-		"call $putint",
+		"call $IO_out_int",
 		"call $proc_exit",
 	}
 	for _, piece := range pieces {
@@ -214,14 +215,24 @@ func TestMainNonIntNotPrinted(t *testing.T) {
 	}
 }
 
-func TestUnsupportedExpression(t *testing.T) {
-	prog, res := parseAndCheck(t, `class Main { main() : Object { "oi" }; };`)
-	_, err := Generate(prog, res)
-	if err == nil {
-		t.Fatal("esperava erro para expressao ainda nao suportada")
+func TestStringLiteral(t *testing.T) {
+	// o literal vira endereco do objeto estatico em 2048
+	checkOps(t, `class Main { main() : Object { "oi" }; };`,
+		"(local $tmp0 i32)",
+		"i32.const 2048")
+	wat := generate(t, `class Main { main() : Object { "oi" }; };`)
+	if !strings.Contains(wat, `(data (i32.const 2048)`) {
+		t.Errorf("modulo sem segmento de dados do literal")
 	}
-	if !strings.Contains(err.Error(), "nao suportada") {
-		t.Errorf("mensagem inesperada: %v", err)
+}
+
+func TestStringDataDense(t *testing.T) {
+	// "ab" ocupa 8+2, entao "abc" comeca em 2058
+	wat := generate(t, `class Main { main() : Object { let a : String <- "ab" in a = "abc" }; };`)
+	for _, piece := range []string{`(data (i32.const 2048)`, `(data (i32.const 2058)`} {
+		if !strings.Contains(wat, piece) {
+			t.Errorf("modulo sem %q", piece)
+		}
 	}
 }
 
@@ -418,30 +429,30 @@ func TestDynamicDispatch(t *testing.T) {
 class Cachorro inherits Animal { valor() : Int { 2 }; };
 class Gato inherits Animal { };
 class Main { main() : Int { let a : Animal <- new Cachorro in a.valor() }; };`,
-		"(local $tmp0 i32)", "(local $l0 i32)",
+		"(local $tmp0 i32)", "(local $t0 i32)", "(local $l0 i32)",
 		"call $Cachorro_new", "local.set $l0",
 		"local.get $l0",
-		"local.set $tmp0", "local.get $tmp0", "i32.eqz",
+		"local.set $t0", "local.get $t0", "i32.eqz",
 		"(if (then", "unreachable", "))",
 		"(block $done (result i32)",
-		"local.get $tmp0", "i32.load offset=0", "i32.const 6", "i32.eq",
-		"(if (then", "local.get $tmp0", "call $Animal_valor", "br $done", "))",
-		"local.get $tmp0", "i32.load offset=0", "i32.const 7", "i32.eq",
-		"(if (then", "local.get $tmp0", "call $Cachorro_valor", "br $done", "))",
-		"local.get $tmp0", "i32.load offset=0", "i32.const 8", "i32.eq",
-		"(if (then", "local.get $tmp0", "call $Animal_valor", "br $done", "))",
+		"local.get $t0", "i32.load offset=0", "i32.const 6", "i32.eq",
+		"(if (then", "local.get $t0", "call $Animal_valor", "br $done", "))",
+		"local.get $t0", "i32.load offset=0", "i32.const 7", "i32.eq",
+		"(if (then", "local.get $t0", "call $Cachorro_valor", "br $done", "))",
+		"local.get $t0", "i32.load offset=0", "i32.const 8", "i32.eq",
+		"(if (then", "local.get $t0", "call $Animal_valor", "br $done", "))",
 		"unreachable", ")")
 }
 
 func TestSelfDispatch(t *testing.T) {
 	checkOps(t, "class Main { f() : Int { 3 }; main() : Int { f() }; };",
-		"(local $tmp0 i32)",
+		"(local $tmp0 i32)", "(local $t0 i32)",
 		"local.get $self",
-		"local.set $tmp0", "local.get $tmp0", "i32.eqz",
+		"local.set $t0", "local.get $t0", "i32.eqz",
 		"(if (then", "unreachable", "))",
 		"(block $done (result i32)",
-		"local.get $tmp0", "i32.load offset=0", "i32.const 6", "i32.eq",
-		"(if (then", "local.get $tmp0", "call $Main_f", "br $done", "))",
+		"local.get $t0", "i32.load offset=0", "i32.const 6", "i32.eq",
+		"(if (then", "local.get $t0", "call $Main_f", "br $done", "))",
 		"unreachable", ")")
 }
 
@@ -449,36 +460,37 @@ func TestStaticDispatch(t *testing.T) {
 	checkOps(t, `class A { f() : Int { 7 }; };
 class B inherits A { };
 class Main { main() : Int { (new B)@A.f() }; };`,
-		"(local $tmp0 i32)",
+		"(local $tmp0 i32)", "(local $t0 i32)",
 		"call $B_new",
-		"local.tee $tmp0", "i32.eqz",
+		"local.tee $t0", "i32.eqz",
 		"(if (then", "unreachable", "))",
-		"local.get $tmp0", "call $A_f")
+		"local.get $t0", "call $A_f")
 }
 
 func TestBuiltinCopy(t *testing.T) {
 	// copy de Int passa pelo $Object_copy sintetizado
 	checkOps(t, "class Main { main() : Int { let c : Int <- 5 in c.copy() }; };",
-		"(local $tmp0 i32)", "(local $l0 i32)",
+		"(local $tmp0 i32)", "(local $t0 i32)", "(local $l0 i32)",
 		"i64.const 5", "call $new_int", "local.set $l0",
 		"local.get $l0",
-		"local.set $tmp0", "local.get $tmp0", "i32.eqz",
+		"local.set $t0", "local.get $t0", "i32.eqz",
 		"(if (then", "unreachable", "))",
 		"(block $done (result i32)",
-		"local.get $tmp0", "i32.load offset=0", "i32.const 3", "i32.eq",
-		"(if (then", "local.get $tmp0", "call $Object_copy", "br $done", "))",
+		"local.get $t0", "i32.load offset=0", "i32.const 3", "i32.eq",
+		"(if (then", "local.get $t0", "call $Object_copy", "br $done", "))",
 		"unreachable", ")")
 }
 
-func TestStringMethodNotYet(t *testing.T) {
-	prog, res := parseAndCheck(t, "class Main { main() : Object { (new String).length() }; };")
-	_, err := Generate(prog, res)
-	if err == nil {
-		t.Fatal("esperava erro para metodo de String")
-	}
-	if !strings.Contains(err.Error(), "passo 6") {
-		t.Errorf("mensagem inesperada: %v", err)
-	}
+func TestStringLength(t *testing.T) {
+	checkOps(t, "class Main { main() : Object { (new String).length() }; };",
+		"(local $tmp0 i32)", "(local $t0 i32)",
+		"call $new_str_empty",
+		"local.set $t0", "local.get $t0", "i32.eqz",
+		"(if (then", "unreachable", "))",
+		"(block $done (result i32)",
+		"local.get $t0", "i32.load offset=0", "i32.const 4", "i32.eq",
+		"(if (then", "local.get $t0", "call $String_length", "br $done", "))",
+		"unreachable", ")")
 }
 
 func TestTypeNameNotYet(t *testing.T) {
@@ -489,5 +501,42 @@ func TestTypeNameNotYet(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "passo 7") {
 		t.Errorf("mensagem inesperada: %v", err)
+	}
+}
+
+func TestStringConcat(t *testing.T) {
+	checkOps(t, `class Main { main() : Object { "a".concat("b") }; };`,
+		"(local $tmp0 i32)", "(local $a0 i32)", "(local $t0 i32)",
+		"i32.const 2048",
+		"local.set $t0", "local.get $t0", "i32.eqz",
+		"(if (then", "unreachable", "))",
+		"i32.const 2057",
+		"local.set $a0",
+		"(block $done (result i32)",
+		"local.get $t0", "i32.load offset=0", "i32.const 4", "i32.eq",
+		"(if (then", "local.get $t0", "local.get $a0", "call $String_concat", "br $done", "))",
+		"unreachable", ")")
+}
+
+func TestStringEquality(t *testing.T) {
+	// String compara conteudo via $str_eq, nao endereco
+	checkOps(t, `class Main { main() : Bool { let a : String <- "ab" in a = "abc" }; };`,
+		"(local $tmp0 i32)", "(local $l0 i32)",
+		"i32.const 2048", "local.set $l0",
+		"local.get $l0", "i32.const 2058",
+		"call $str_eq", "call $new_bool")
+}
+
+func TestStartUsesOutInt(t *testing.T) {
+	wat := generate(t, "class Main { main() : Int { 42 }; };")
+	i := strings.Index(wat, `(func (export "_start")`)
+	if i < 0 {
+		t.Fatal("modulo sem _start")
+	}
+	if strings.Contains(wat[i:], "putint") {
+		t.Error("_start ainda usa putint direto")
+	}
+	if !strings.Contains(wat[i:], "call $IO_out_int") {
+		t.Error("_start nao imprime via out_int")
 	}
 }
