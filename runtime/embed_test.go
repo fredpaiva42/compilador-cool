@@ -17,6 +17,12 @@ func TestPreludeHasPieces(t *testing.T) {
 		"(func $putint",
 		"(func $read_line",
 		"(func $read_int",
+		"(func $obj_new",
+		"(func $new_int",
+		"(func $new_bool",
+		"(func $new_str_empty",
+		"(func $copy_obj",
+		"(func $abort",
 	}
 	for _, piece := range pieces {
 		if !strings.Contains(p, piece) {

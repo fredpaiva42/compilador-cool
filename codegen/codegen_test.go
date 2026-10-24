@@ -47,6 +47,7 @@ func generate(t *testing.T, src string) string {
 
 // ops devolve so as instrucoes do corpo de Main.main, sem a declaracao da
 // funcao nem o fechamento. O preludio do runtime nao entra: ele e fixo.
+// Toda funcao declara (local $tmp0 i32), entao ele abre quase toda sequencia.
 func ops(t *testing.T, src string) []string {
 	t.Helper()
 	wat := generate(t, src)
@@ -87,10 +88,14 @@ func TestMinimalModule(t *testing.T) {
 	wat := generate(t, "class Main { main() : Int { 42 }; };")
 	pieces := []string{
 		"(module",
-		"(func $Main_main (param $self i32) (result i64)",
+		"(func $Main_new (result i32)",
+		"(func $Main_main (param $self i32) (result i32)",
 		"i64.const 42",
+		"call $new_int",
 		`(func (export "_start")`,
+		"call $Main_new",
 		"call $Main_main",
+		"i64.load offset=8",
 		"call $putint",
 		"call $proc_exit",
 	}
@@ -105,48 +110,93 @@ func TestMinimalModule(t *testing.T) {
 }
 
 func TestArithmeticPrecedence(t *testing.T) {
-	// 1 + 2 * 3 empilha o 1, depois o 2, o 3 e a multiplicacao, e so no fim soma
+	// 1 + 2 * 3: cada literal encaixota, cada operacao desembrulha e reencaixota
 	checkOps(t, "class Main { main() : Int { 1 + 2 * 3 }; };",
-		"i64.const 1", "i64.const 2", "i64.const 3", "i64.mul", "i64.add")
+		"(local $tmp0 i32)",
+		"i64.const 1", "call $new_int",
+		"i64.const 2", "call $new_int",
+		"i64.const 3", "call $new_int",
+		"local.set $tmp0", "i64.load offset=8", "local.get $tmp0", "i64.load offset=8",
+		"i64.mul", "call $new_int",
+		"local.set $tmp0", "i64.load offset=8", "local.get $tmp0", "i64.load offset=8",
+		"i64.add", "call $new_int")
 }
 
 func TestArithmeticDivisionAndSubtraction(t *testing.T) {
 	checkOps(t, "class Main { main() : Int { 100 / 2 - 8 }; };",
-		"i64.const 100", "i64.const 2", "i64.div_s", "i64.const 8", "i64.sub")
+		"(local $tmp0 i32)",
+		"i64.const 100", "call $new_int",
+		"i64.const 2", "call $new_int",
+		"local.set $tmp0", "i64.load offset=8", "local.get $tmp0", "i64.load offset=8",
+		"i64.div_s", "call $new_int",
+		"i64.const 8", "call $new_int",
+		"local.set $tmp0", "i64.load offset=8", "local.get $tmp0", "i64.load offset=8",
+		"i64.sub", "call $new_int")
 }
 
 func TestComparison(t *testing.T) {
 	checkOps(t, "class Main { main() : Bool { 1 < 2 }; };",
-		"i64.const 1", "i64.const 2", "i64.lt_s")
+		"(local $tmp0 i32)",
+		"i64.const 1", "call $new_int",
+		"i64.const 2", "call $new_int",
+		"local.set $tmp0", "i64.load offset=8", "local.get $tmp0", "i64.load offset=8",
+		"i64.lt_s", "call $new_bool")
 	checkOps(t, "class Main { main() : Bool { 1 <= 2 }; };",
-		"i64.const 1", "i64.const 2", "i64.le_s")
+		"(local $tmp0 i32)",
+		"i64.const 1", "call $new_int",
+		"i64.const 2", "call $new_int",
+		"local.set $tmp0", "i64.load offset=8", "local.get $tmp0", "i64.load offset=8",
+		"i64.le_s", "call $new_bool")
 }
 
-func TestNegIsSubtraction(t *testing.T) {
-	// o WASM nao tem negacao de inteiro
+func TestNegUnboxes(t *testing.T) {
 	checkOps(t, "class Main { main() : Int { ~5 }; };",
-		"i64.const 0", "i64.const 5", "i64.sub")
+		"(local $tmp0 i32)",
+		"i64.const 0",
+		"i64.const 5", "call $new_int",
+		"i64.load offset=8", "i64.sub", "call $new_int")
 }
 
-func TestNotIsEqz(t *testing.T) {
+func TestNotUnboxes(t *testing.T) {
 	checkOps(t, "class Main { main() : Bool { not true }; };",
-		"i32.const 1", "i32.eqz")
+		"(local $tmp0 i32)",
+		"i32.const 1", "call $new_bool",
+		"i32.load offset=8", "i32.eqz", "call $new_bool")
 }
 
 func TestEqualityInt(t *testing.T) {
 	checkOps(t, "class Main { main() : Bool { 1 = 2 }; };",
-		"i64.const 1", "i64.const 2", "i64.eq")
+		"(local $tmp0 i32)",
+		"i64.const 1", "call $new_int",
+		"i64.const 2", "call $new_int",
+		"local.set $tmp0", "i64.load offset=8", "local.get $tmp0", "i64.load offset=8",
+		"i64.eq", "call $new_bool")
 }
 
 func TestEqualityBool(t *testing.T) {
-	// Bool e i32, entao a comparacao e i32.eq
 	checkOps(t, "class Main { main() : Bool { true = false }; };",
-		"i32.const 1", "i32.const 0", "i32.eq")
+		"(local $tmp0 i32)",
+		"i32.const 1", "call $new_bool",
+		"i32.const 0", "call $new_bool",
+		"local.set $tmp0", "i32.load offset=8", "local.get $tmp0", "i32.load offset=8",
+		"i32.eq", "call $new_bool")
+}
+
+func TestEqualityObjects(t *testing.T) {
+	// objetos comparam endereco, sem desembrulhar
+	checkOps(t, "class Main { main() : Bool { let a : Object, b : Object in a = b }; };",
+		"(local $tmp0 i32)", "(local $l0 i32)", "(local $l1 i32)",
+		"i32.const 0", "local.set $l0",
+		"i32.const 0", "local.set $l1",
+		"local.get $l0", "local.get $l1", "i32.eq", "call $new_bool")
 }
 
 func TestBlockDropsAllButLast(t *testing.T) {
 	checkOps(t, "class Main { main() : Int { { 1; 2; 3; } }; };",
-		"i64.const 1", "drop", "i64.const 2", "drop", "i64.const 3")
+		"(local $tmp0 i32)",
+		"i64.const 1", "call $new_int", "drop",
+		"i64.const 2", "call $new_int", "drop",
+		"i64.const 3", "call $new_int")
 }
 
 func TestMainNonIntNotPrinted(t *testing.T) {
@@ -175,94 +225,190 @@ func TestUnsupportedExpression(t *testing.T) {
 	}
 }
 
-func TestWATType(t *testing.T) {
-	cases := map[string]string{
-		"Int": "i64", "Bool": "i32", "String": "i32",
-		"Object": "i32", "IO": "i32", "SELF_TYPE": "i32",
+func TestDispatchNotYetSupported(t *testing.T) {
+	prog, res := parseAndCheck(t, "class Main { main() : Object { copy() }; };")
+	_, err := Generate(prog, res)
+	if err == nil {
+		t.Fatal("esperava erro para despacho")
 	}
-	for cool, want := range cases {
-		if got := watType(cool); got != want {
-			t.Errorf("watType(%q) = %q, quer %q", cool, got, want)
+	if !strings.Contains(err.Error(), "nao suportada") {
+		t.Errorf("mensagem inesperada: %v", err)
+	}
+}
+
+func TestClassTags(t *testing.T) {
+	prog, _ := parseAndCheck(t, `class Zebra { main() : Object { self }; };
+class Abacaxi { main() : Object { self }; };
+class Main { main() : Object { self }; };`)
+	tags := classTags(prog)
+	want := map[string]int{
+		"Object": 1, "IO": 2, "Int": 3, "String": 4, "Bool": 5,
+		"Abacaxi": 6, "Main": 7, "Zebra": 8,
+	}
+	for name, tag := range want {
+		if tags[name] != tag {
+			t.Errorf("tag de %s = %d, quer %d", name, tags[name], tag)
+		}
+	}
+}
+
+func TestAttrLayout(t *testing.T) {
+	_, res := parseAndCheck(t, `class A { x : Int; y : Bool; };
+class B inherits A { z : Object; };
+class Main { main() : Object { self }; };`)
+	fields := attrLayout(res.Tab, "B")
+	want := []attrField{{"x", "Int"}, {"y", "Bool"}, {"z", "Object"}}
+	if len(fields) != len(want) {
+		t.Fatalf("campos = %v, quer %v", fields, want)
+	}
+	for i := range want {
+		if fields[i] != want[i] {
+			t.Fatalf("campos = %v, quer %v", fields, want)
+		}
+	}
+	e := &Emitter{sem: res, class: "B"}
+	if off := e.attrOffset("y"); off != 16 {
+		t.Errorf("deslocamento de y = %d, quer 16", off)
+	}
+	if off := e.attrOffset("w"); off != -1 {
+		t.Errorf("deslocamento de w = %d, quer -1", off)
+	}
+}
+
+func TestConstructorEmitted(t *testing.T) {
+	wat := generate(t, "class Main { x : Int <- 5; main() : Int { x }; };")
+	pieces := []string{
+		"(func $Main_new (result i32)",
+		"call $obj_new",
+		"i64.const 5",
+		"call $new_int",
+		"i32.store offset=8",
+		"local.get $self",
+		"i32.load offset=8",
+	}
+	for _, piece := range pieces {
+		if !strings.Contains(wat, piece) {
+			t.Errorf("modulo sem %q\n--- modulo ---\n%s", piece, wat)
+		}
+	}
+}
+
+func TestNewSelfType(t *testing.T) {
+	wat := generate(t, "class Main { main() : Object { new SELF_TYPE }; };")
+	pieces := []string{
+		"(block $done (result i32)",
+		"call $Main_new",
+		"unreachable",
+	}
+	for _, piece := range pieces {
+		if !strings.Contains(wat, piece) {
+			t.Errorf("modulo sem %q\n--- modulo ---\n%s", piece, wat)
 		}
 	}
 }
 
 func TestIfThenElse(t *testing.T) {
 	checkOps(t, "class Main { main() : Int { if 1 < 2 then 10 else 20 fi }; };",
-		"i64.const 1", "i64.const 2", "i64.lt_s",
-		"(if (result i64)",
-		"(then", "i64.const 10", ")",
-		"(else", "i64.const 20", ")",
+		"(local $tmp0 i32)",
+		"i64.const 1", "call $new_int",
+		"i64.const 2", "call $new_int",
+		"local.set $tmp0", "i64.load offset=8", "local.get $tmp0", "i64.load offset=8",
+		"i64.lt_s", "call $new_bool",
+		"i32.load offset=8",
+		"(if (result i32)",
+		"(then", "i64.const 10", "call $new_int", ")",
+		"(else", "i64.const 20", "call $new_int", ")",
+		")")
+}
+
+func TestIfMixedBranchesOk(t *testing.T) {
+	// com tudo encaixotado, ramos de tipos diferentes sao so enderecos
+	checkOps(t, "class Main { main() : Object { if true then 1 else false fi }; };",
+		"(local $tmp0 i32)",
+		"i32.const 1", "call $new_bool",
+		"i32.load offset=8",
+		"(if (result i32)",
+		"(then", "i64.const 1", "call $new_int", ")",
+		"(else", "i32.const 0", "call $new_bool", ")",
 		")")
 }
 
 func TestLetAssign(t *testing.T) {
 	checkOps(t, "class Main { main() : Int { let x : Int <- 40 in { x <- x + 2; } }; };",
-		"(local $l0 i64)",
-		"i64.const 40", "local.set $l0",
-		"local.get $l0", "i64.const 2", "i64.add", "local.tee $l0")
+		"(local $tmp0 i32)", "(local $l0 i32)",
+		"i64.const 40", "call $new_int", "local.set $l0",
+		"local.get $l0",
+		"i64.const 2", "call $new_int",
+		"local.set $tmp0", "i64.load offset=8", "local.get $tmp0", "i64.load offset=8",
+		"i64.add", "call $new_int",
+		"local.tee $l0")
 }
 
 func TestLetDefault(t *testing.T) {
 	checkOps(t, "class Main { main() : Int { let x : Int in x + 1 }; };",
-		"(local $l0 i64)",
-		"i64.const 0", "local.set $l0",
-		"local.get $l0", "i64.const 1", "i64.add")
+		"(local $tmp0 i32)", "(local $l0 i32)",
+		"i64.const 0", "call $new_int", "local.set $l0",
+		"local.get $l0",
+		"i64.const 1", "call $new_int",
+		"local.set $tmp0", "i64.load offset=8", "local.get $tmp0", "i64.load offset=8",
+		"i64.add", "call $new_int")
 }
 
 func TestLetShadowing(t *testing.T) {
 	// o interno ganha outro local e o externo volta a valer depois
 	checkOps(t, "class Main { main() : Int { let x : Int <- 1 in { { let x : Int <- 2 in x; }; x; } }; };",
-		"(local $l0 i64)", "(local $l1 i64)",
-		"i64.const 1", "local.set $l0",
-		"i64.const 2", "local.set $l1",
+		"(local $tmp0 i32)", "(local $l0 i32)", "(local $l1 i32)",
+		"i64.const 1", "call $new_int", "local.set $l0",
+		"i64.const 2", "call $new_int", "local.set $l1",
 		"local.get $l1", "drop",
 		"local.get $l0")
 }
 
-func TestIsVoidIntIsFalse(t *testing.T) {
-	// Int nunca e void: o valor sai da pilha e entra falso
+func TestIsVoidBoxed(t *testing.T) {
 	checkOps(t, "class Main { main() : Int { if isvoid 0 then 1 else 2 fi }; };",
-		"i64.const 0", "drop", "i32.const 0",
-		"(if (result i64)",
-		"(then", "i64.const 1", ")",
-		"(else", "i64.const 2", ")",
+		"(local $tmp0 i32)",
+		"i64.const 0", "call $new_int",
+		"i32.eqz", "call $new_bool",
+		"i32.load offset=8",
+		"(if (result i32)",
+		"(then", "i64.const 1", "call $new_int", ")",
+		"(else", "i64.const 2", "call $new_int", ")",
 		")")
+}
+
+func TestIsVoidVoid(t *testing.T) {
+	checkOps(t, "class Main { main() : Bool { let o : Object in isvoid o }; };",
+		"(local $tmp0 i32)", "(local $l0 i32)",
+		"i32.const 0", "local.set $l0",
+		"local.get $l0", "i32.eqz", "call $new_bool")
 }
 
 func TestSelfIsParam(t *testing.T) {
 	checkOps(t, "class Main { main() : Object { self }; };",
+		"(local $tmp0 i32)",
 		"local.get $self")
 }
 
 func TestWhileEmission(t *testing.T) {
 	checkOps(t, "class Main { main() : Object { while true loop 1 pool }; };",
+		"(local $tmp0 i32)",
 		"(block $w0", "(loop $l0",
-		"i32.const 1", "i32.eqz", "br_if $w0",
-		"i64.const 1", "drop", "br $l0",
+		"i32.const 1", "call $new_bool",
+		"i32.load offset=8", "i32.eqz", "br_if $w0",
+		"i64.const 1", "call $new_int", "drop", "br $l0",
 		")", ")",
 		"i32.const 0")
 }
 
-func TestIfMixedBranchesError(t *testing.T) {
-	// join(Int, Bool) e Object: sem boxing o emissor recusa
-	prog, res := parseAndCheck(t, "class Main { main() : Object { if true then 1 else false fi }; };")
-	_, err := Generate(prog, res)
-	if err == nil {
-		t.Fatal("esperava erro para ramos de tipos diferentes")
-	}
-	if !strings.Contains(err.Error(), "ainda nao suportado") {
-		t.Errorf("mensagem inesperada: %v", err)
-	}
-}
-
-func TestAttributeNotYetSupported(t *testing.T) {
-	prog, res := parseAndCheck(t, "class Main { x : Int <- 5; main() : Int { x }; };")
-	_, err := Generate(prog, res)
-	if err == nil {
-		t.Fatal("esperava erro para atributo")
-	}
-	if !strings.Contains(err.Error(), "atributo") {
-		t.Errorf("mensagem inesperada: %v", err)
-	}
+func TestAttrAssign(t *testing.T) {
+	checkOps(t, "class Main { x : Int <- 1; main() : Int { { x <- x + 1; x; } }; };",
+		"(local $tmp0 i32)",
+		"local.get $self", "i32.load offset=8",
+		"i64.const 1", "call $new_int",
+		"local.set $tmp0", "i64.load offset=8", "local.get $tmp0", "i64.load offset=8",
+		"i64.add", "call $new_int",
+		"local.set $tmp0", "local.get $self", "local.get $tmp0",
+		"i32.store offset=8", "local.get $tmp0",
+		"drop",
+		"local.get $self", "i32.load offset=8")
 }
