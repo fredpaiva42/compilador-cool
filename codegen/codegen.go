@@ -28,15 +28,16 @@ const (
 
 // Emitter acumula o texto do modulo em construcao.
 type Emitter struct {
-	b      strings.Builder
-	sem    *semantic.Result
-	level  int                        // unidades de indentacao de dois espacos
-	locals []string                   // declaracoes (local $l0 i32), uma por let
-	bound  map[*ast.LetBinding]string // cada binding ganha um local proprio
-	vars   map[string]string          // nome visivel -> local ou parametro
-	class  string                     // classe do metodo em emissao
-	labels int                        // contador de rotulos para o while
-	tags   map[string]int             // classe -> tag
+	b       strings.Builder
+	sem     *semantic.Result
+	level   int                        // unidades de indentacao de dois espacos
+	locals  []string                   // declaracoes (local $l0 i32), uma por let
+	bound   map[*ast.LetBinding]string // cada binding ganha um local proprio
+	vars    map[string]string          // nome visivel -> local ou parametro
+	class   string                     // classe do metodo em emissao
+	labels  int                        // contador de rotulos para o while
+	tags    map[string]int             // classe -> tag
+	scratch int                        // maior numero de args de despacho ($a0...)
 }
 
 // Generate devolve o modulo WAT completo do programa: preludio do runtime,
@@ -44,6 +45,7 @@ type Emitter struct {
 func Generate(prog *ast.Program, sem *semantic.Result) (string, error) {
 	e := &Emitter{sem: sem, tags: classTags(prog)}
 	e.b.WriteString(runtime.Prelude())
+	e.objectBuiltins()
 	for _, c := range prog.Classes {
 		if err := e.constructor(c); err != nil {
 			return "", err
@@ -64,6 +66,27 @@ func Generate(prog *ast.Program, sem *semantic.Result) (string, error) {
 	e.level = 0
 	e.line(")")
 	return e.b.String(), nil
+}
+
+// objectBuiltins sintetiza os metodos de Object implementados no runtime:
+// abort sai com codigo 1 e copy duplica o objeto. type_name fica para o
+// passo 7 e os de IO/String para o 6. Nao colide com override: o metodo do
+// usuario sai como $Classe_metodo, este como $Object_metodo.
+func (e *Emitter) objectBuiltins() {
+	e.b.WriteString("\n")
+	e.level = 1
+	e.line("(func $Object_abort (param $self i32) (result i32)")
+	e.level = 2
+	e.line("call $abort")
+	e.line("unreachable")
+	e.level = 1
+	e.line(")")
+	e.line("(func $Object_copy (param $self i32) (result i32)")
+	e.level = 2
+	e.line("local.get $self")
+	e.line("call $copy_obj")
+	e.level = 1
+	e.line(")")
 }
 
 // classTags numera as classes do programa de 6 em diante, em ordem
@@ -160,6 +183,7 @@ func (e *Emitter) method(c *ast.Class, m *ast.Method) error {
 	e.line("%s", decl)
 	e.level = 2
 	e.line("(local $tmp0 i32)")
+	e.scratchDecls()
 	for _, d := range e.locals {
 		e.line("%s", d)
 	}
@@ -171,6 +195,14 @@ func (e *Emitter) method(c *ast.Class, m *ast.Method) error {
 	return nil
 }
 
+// scratchDecls declara um temporario por posicao de argumento ($a0...): o
+// despacho dinamico avalia os args uma vez e guarda antes da ramificacao.
+func (e *Emitter) scratchDecls() {
+	for i := 0; i < e.scratch; i++ {
+		e.line("(local $a%d i32)", i)
+	}
+}
+
 // beginScope zera o estado por funcao: labels do WAT so valem dentro dela.
 func (e *Emitter) beginScope(class string) {
 	e.locals = nil
@@ -178,6 +210,7 @@ func (e *Emitter) beginScope(class string) {
 	e.vars = map[string]string{}
 	e.class = class
 	e.labels = 0
+	e.scratch = 0
 }
 
 // constructor emite $C_new: aloca com zeros, poe os padroes e avalia os inits
@@ -199,6 +232,7 @@ func (e *Emitter) constructor(c *ast.Class) error {
 	e.level = 2
 	e.line("(local $self i32)")
 	e.line("(local $tmp0 i32)")
+	e.scratchDecls()
 	for _, d := range e.locals {
 		e.line("%s", d)
 	}
@@ -288,6 +322,29 @@ func (e *Emitter) allocLocals(x ast.Expr) {
 		e.allocLocals(n.Expr)
 	case *ast.Assign:
 		e.allocLocals(n.Value)
+	case *ast.Dispatch:
+		if n.Receiver != nil {
+			e.allocLocals(n.Receiver)
+		}
+		for _, a := range n.Args {
+			e.allocLocals(a)
+		}
+		if len(n.Args) > e.scratch {
+			e.scratch = len(n.Args)
+		}
+	case *ast.StaticDispatch:
+		e.allocLocals(n.Receiver)
+		for _, a := range n.Args {
+			e.allocLocals(a)
+		}
+		if len(n.Args) > e.scratch {
+			e.scratch = len(n.Args)
+		}
+	case *ast.Case:
+		e.allocLocals(n.Subject)
+		for _, b := range n.Branches {
+			e.allocLocals(b.Body)
+		}
 	}
 }
 
@@ -347,6 +404,10 @@ func (e *Emitter) expr(x ast.Expr) error {
 		return e.let(n)
 	case *ast.Assign:
 		return e.assign(n)
+	case *ast.Dispatch:
+		return e.dispatch(n)
+	case *ast.StaticDispatch:
+		return e.staticDispatch(n)
 	default:
 		return fmt.Errorf("expressao ainda nao suportada (%T)", x)
 	}
@@ -424,6 +485,122 @@ func (e *Emitter) newSelf() error {
 	e.level--
 	e.line(")")
 	return nil
+}
+
+// voidCheck guarda o receptor no temporario e explode se for void: despacho
+// sobre void e erro de execucao pelo manual.
+func (e *Emitter) voidCheck() {
+	e.line("local.set $tmp0")
+	e.line("local.get $tmp0")
+	e.line("i32.eqz")
+	e.line("(if (then")
+	e.level++
+	e.line("unreachable")
+	e.level--
+	e.line("))")
+}
+
+// dispatch emite a chamada dinamica: avalia receptor e args, trava void, e
+// ramifica pela tag ate a implementacao do dono (a mais especifica herdada).
+// Os args vao para os temporarios para serem avaliados uma so vez.
+func (e *Emitter) dispatch(n *ast.Dispatch) error {
+	static := "SELF_TYPE"
+	if n.Receiver == nil {
+		e.line("local.get $self")
+	} else {
+		static = e.sem.Types[n.Receiver]
+		if err := e.expr(n.Receiver); err != nil {
+			return err
+		}
+	}
+	if static == "SELF_TYPE" {
+		static = e.class
+	}
+	if _, ok := e.sem.Tab.Methods[static][n.Method]; !ok {
+		return fmt.Errorf("metodo %s inexistente em %s", n.Method, static)
+	}
+	e.voidCheck()
+	for i := len(n.Args) - 1; i >= 0; i-- {
+		e.line("local.set $a%d", i)
+	}
+	e.line("(block $done (result i32)")
+	e.level++
+	for _, s := range e.subclasses(static) {
+		owner := e.sem.Tab.Methods[s][n.Method].Owner
+		target, err := e.builtinTarget(owner, n.Method)
+		if err != nil {
+			return err
+		}
+		e.line("local.get $tmp0")
+		e.line("i32.load offset=0")
+		e.line("i32.const %d", e.tags[s])
+		e.line("i32.eq")
+		e.line("(if (then")
+		e.level++
+		e.line("local.get $tmp0")
+		for i := range n.Args {
+			e.line("local.get $a%d", i)
+		}
+		e.line("call %s", target)
+		e.line("br $done")
+		e.level--
+		e.line("))")
+	}
+	e.line("unreachable")
+	e.level--
+	e.line(")")
+	return nil
+}
+
+// staticDispatch emite a chamada com tipo estatico: trava void e chama direto
+// a implementacao do dono, sem ramificar pela tag.
+func (e *Emitter) staticDispatch(n *ast.StaticDispatch) error {
+	if err := e.expr(n.Receiver); err != nil {
+		return err
+	}
+	static := n.StaticType
+	if static == "SELF_TYPE" {
+		static = e.class
+	}
+	sig, ok := e.sem.Tab.Methods[static][n.Method]
+	if !ok {
+		return fmt.Errorf("metodo %s inexistente em %s", n.Method, static)
+	}
+	target, err := e.builtinTarget(sig.Owner, n.Method)
+	if err != nil {
+		return err
+	}
+	e.line("local.tee $tmp0")
+	e.line("i32.eqz")
+	e.line("(if (then")
+	e.level++
+	e.line("unreachable")
+	e.level--
+	e.line("))")
+	e.line("local.get $tmp0")
+	for _, a := range n.Args {
+		if err := e.expr(a); err != nil {
+			return err
+		}
+	}
+	e.line("call %s", target)
+	return nil
+}
+
+// builtinTarget resolve a funcao WAT do metodo do dono: abort e copy tem
+// sinteticas no proprio emissor; type_name e passo 7 e o resto das basicas
+// (IO, String) e passo 6.
+func (e *Emitter) builtinTarget(owner, method string) (string, error) {
+	if owner == "Object" && (method == "abort" || method == "copy") {
+		return "$Object_" + method, nil
+	}
+	if info, ok := e.sem.Tab.Classes[owner]; ok && info.Node == nil {
+		if method == "type_name" {
+			return "", fmt.Errorf("type_name ainda nao suportado (passo 7)")
+		}
+		return "", fmt.Errorf("metodo %s de %s ainda nao suportado (passo 6)", method, owner)
+	}
+	return "$" + owner + "_" + method, nil
 }
 
 // unboxInt desempilha um endereco de Int e empilha o i64 de dentro.
