@@ -13,7 +13,7 @@ type typeEnv struct {
 }
 
 // checkExpr devolve o tipo estático de x como nome ("Int", "Cachorro", "SELF_TYPE").
-func (e *typeEnv) checkExpr(x ast.Expr) (string, error) {
+func (e *typeEnv) typeOf(x ast.Expr) (string, error) {
 	switch n := x.(type) {
 	case *ast.IntConst:
 		return "Int", nil
@@ -69,6 +69,17 @@ func (e *typeEnv) checkExpr(x ast.Expr) (string, error) {
 	default:
 		return "", fmt.Errorf("expressão não tratada pelo verificador (linha %d)", exprLine(x))
 	}
+}
+
+func (e *typeEnv) checkExpr(x ast.Expr) (string, error) {
+	t, err := e.typeOf(x)
+	if err != nil {
+		return "", err
+	}
+	if e.tab.Types != nil {
+		e.tab.Types[x] = t
+	}
+	return t, nil
 }
 
 func (e *typeEnv) checkNew(n *ast.New) (string, error) {

@@ -11,8 +11,8 @@ import (
 	"cool/token"
 )
 
-// programa roda o pipeline do lexico ao semantico e devolve a AST conferida.
-func programa(t *testing.T, src string) *ast.Program {
+// parseAndCheck roda o pipeline do lexico ao semantico e devolve a AST conferida.
+func parseAndCheck(t *testing.T, src string) *ast.Program {
 	t.Helper()
 	l := lexer.New(src)
 	var toks []token.Token
@@ -33,12 +33,12 @@ func programa(t *testing.T, src string) *ast.Program {
 	return prog
 }
 
-func TestModuloMinimo(t *testing.T) {
-	wat, err := Gerar(programa(t, "class Main { main() : Int { 42 }; };"))
+func TestMinimalModule(t *testing.T) {
+	wat, err := Generate(parseAndCheck(t, "class Main { main() : Int { 42 }; };"))
 	if err != nil {
 		t.Fatalf("gerar: %v", err)
 	}
-	pecas := []string{
+	pieces := []string{
 		"(module",
 		"(func $Main_main (param $self i32) (result i64)",
 		"(i64.const 42)",
@@ -46,9 +46,9 @@ func TestModuloMinimo(t *testing.T) {
 		"(call $putint (call $Main_main (i32.const 0)))",
 		"(call $proc_exit (i32.const 0))",
 	}
-	for _, p := range pecas {
-		if !strings.Contains(wat, p) {
-			t.Errorf("modulo sem %q\n--- modulo ---\n%s", p, wat)
+	for _, piece := range pieces {
+		if !strings.Contains(wat, piece) {
+			t.Errorf("modulo sem %q\n--- modulo ---\n%s", piece, wat)
 		}
 	}
 	if !strings.HasSuffix(strings.TrimSpace(wat), ")") {
@@ -56,8 +56,8 @@ func TestModuloMinimo(t *testing.T) {
 	}
 }
 
-func TestMainNaoInteiroNaoImprime(t *testing.T) {
-	wat, err := Gerar(programa(t, "class Main { main() : Bool { true }; };"))
+func TestMainNonIntNotPrinted(t *testing.T) {
+	wat, err := Generate(parseAndCheck(t, "class Main { main() : Bool { true }; };"))
 	if err != nil {
 		t.Fatalf("gerar: %v", err)
 	}
@@ -74,8 +74,8 @@ func TestMainNaoInteiroNaoImprime(t *testing.T) {
 	}
 }
 
-func TestExpressaoNaoSuportada(t *testing.T) {
-	_, err := Gerar(programa(t, "class Main { main() : Int { 1 + 2 }; };"))
+func TestUnsupportedExpression(t *testing.T) {
+	_, err := Generate(parseAndCheck(t, "class Main { main() : Int { 1 + 2 }; };"))
 	if err == nil {
 		t.Fatal("esperava erro para expressao ainda nao suportada")
 	}
@@ -84,14 +84,14 @@ func TestExpressaoNaoSuportada(t *testing.T) {
 	}
 }
 
-func TestTipoWAT(t *testing.T) {
-	casos := map[string]string{
+func TestWATType(t *testing.T) {
+	cases := map[string]string{
 		"Int": "i64", "Bool": "i32", "String": "i32",
 		"Object": "i32", "IO": "i32", "SELF_TYPE": "i32",
 	}
-	for cool, quer := range casos {
-		if got := tipoWAT(cool); got != quer {
-			t.Errorf("tipoWAT(%q) = %q, quer %q", cool, got, quer)
+	for cool, want := range cases {
+		if got := watType(cool); got != want {
+			t.Errorf("watType(%q) = %q, quer %q", cool, got, want)
 		}
 	}
 }

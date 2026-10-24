@@ -6,19 +6,27 @@ import (
 	"cool/ast"
 )
 
-// CheckProgram executa a análise semântica na ordem em que as informações
+// Result é o que a análise entrega ao gerador: a tabela de classes, com as
+// assinaturas e os atributos, e o tipo estático de cada expressão.
+type Result struct {
+	Tab   *Table
+	Types map[ast.Expr]string
+}
+
+// Analyze executa a análise semântica na ordem em que as informações
 // ficam disponíveis: esqueleto da hierarquia, ambientes com os herdados,
 // tipos declarados, corpos e inits das classes, e o contrato de Main.main.
-func CheckProgram(prog *ast.Program) error {
+func Analyze(prog *ast.Program) (*Result, error) {
 	tab, err := Build(prog)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	tab.Types = map[ast.Expr]string{}
 	if err := tab.BuildEnvs(); err != nil {
-		return err
+		return nil, err
 	}
 	if err := tab.checkDeclaredTypes(); err != nil {
-		return err
+		return nil, err
 	}
 	for _, name := range tab.order() {
 		info := tab.Classes[name]
@@ -26,10 +34,19 @@ func CheckProgram(prog *ast.Program) error {
 			continue // básica: sem corpo a checar
 		}
 		if err := tab.checkClass(info); err != nil {
-			return err
+			return nil, err
 		}
 	}
-	return tab.checkMain()
+	if err := tab.checkMain(); err != nil {
+		return nil, err
+	}
+	return &Result{Tab: tab, Types: tab.Types}, nil
+}
+
+// CheckProgram valida o programa e descarta o resultado.
+func CheckProgram(prog *ast.Program) error {
+	_, err := Analyze(prog)
+	return err
 }
 
 func (t *Table) classEnv(className string) *typeEnv {

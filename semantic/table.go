@@ -18,6 +18,7 @@ type Table struct {
 	Classes map[string]*ClassInfo
 	Methods map[string]map[string]*MethodSig // classe → método → assinatura
 	Attrs   map[string]map[string]*AttrInfo  // classe → atributo → ficha
+	Types   map[ast.Expr]string
 }
 
 // Build monta a tabela de classes e valida o esqueleto da hierarquia:

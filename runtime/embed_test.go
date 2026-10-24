@@ -5,9 +5,9 @@ import (
 	"testing"
 )
 
-func TestPreludioTemAsPecas(t *testing.T) {
-	p := Preludio()
-	pecas := []string{
+func TestPreludeHasPieces(t *testing.T) {
+	p := Prelude()
+	pieces := []string{
 		"(module",
 		`(import "wasi_snapshot_preview1" "fd_write"`,
 		`(memory (export "memory")`,
@@ -18,30 +18,30 @@ func TestPreludioTemAsPecas(t *testing.T) {
 		"(func $read_line",
 		"(func $read_int",
 	}
-	for _, peca := range pecas {
-		if !strings.Contains(p, peca) {
-			t.Errorf("preludio nao contem %q", peca)
+	for _, piece := range pieces {
+		if !strings.Contains(p, piece) {
+			t.Errorf("preludio nao contem %q", piece)
 		}
 	}
 }
 
-func TestPreludioNaoTemABateria(t *testing.T) {
-	p := Preludio()
-	proibidas := []string{"(data", "_start", "alloc FALHOU"}
-	for _, proibida := range proibidas {
-		if strings.Contains(p, proibida) {
-			t.Errorf("preludio nao deveria conter %q", proibida)
+func TestPreludeHasNoBattery(t *testing.T) {
+	p := Prelude()
+	forbidden := []string{"(data", "_start", "alloc FALHOU"}
+	for _, f := range forbidden {
+		if strings.Contains(p, f) {
+			t.Errorf("preludio nao deveria conter %q", f)
 		}
 	}
 }
 
-func TestPreludioDeixaOModuloAberto(t *testing.T) {
+func TestPreludeLeavesModuleOpen(t *testing.T) {
 	// o preludio abre o modulo e nao o fecha: quem fecha e o emissor,
 	// depois de colar os dados e as funcoes geradas
-	p := Preludio()
-	abre := strings.Count(p, "(")
-	fecha := strings.Count(p, ")")
-	if abre != fecha+1 {
-		t.Errorf("esperava exatamente um parentese aberto a mais (abre %d, fecha %d)", abre, fecha)
+	p := Prelude()
+	open := strings.Count(p, "(")
+	closed := strings.Count(p, ")")
+	if open != closed+1 {
+		t.Errorf("esperava exatamente um parentese aberto a mais (abre %d, fecha %d)", open, closed)
 	}
 }

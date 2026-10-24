@@ -71,7 +71,7 @@ func main() {
 	}
 
 	if flag == "--wat" {
-		wat, err := codegen.Gerar(prog)
+		wat, err := codegen.Generate(prog)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "erro na geracao: %v\n", err)
 			os.Exit(1)
