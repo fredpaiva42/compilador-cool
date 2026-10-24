@@ -186,3 +186,83 @@ func TestWATType(t *testing.T) {
 		}
 	}
 }
+
+func TestIfThenElse(t *testing.T) {
+	checkOps(t, "class Main { main() : Int { if 1 < 2 then 10 else 20 fi }; };",
+		"i64.const 1", "i64.const 2", "i64.lt_s",
+		"(if (result i64)",
+		"(then", "i64.const 10", ")",
+		"(else", "i64.const 20", ")",
+		")")
+}
+
+func TestLetAssign(t *testing.T) {
+	checkOps(t, "class Main { main() : Int { let x : Int <- 40 in { x <- x + 2; } }; };",
+		"(local $l0 i64)",
+		"i64.const 40", "local.set $l0",
+		"local.get $l0", "i64.const 2", "i64.add", "local.tee $l0")
+}
+
+func TestLetDefault(t *testing.T) {
+	checkOps(t, "class Main { main() : Int { let x : Int in x + 1 }; };",
+		"(local $l0 i64)",
+		"i64.const 0", "local.set $l0",
+		"local.get $l0", "i64.const 1", "i64.add")
+}
+
+func TestLetShadowing(t *testing.T) {
+	// o interno ganha outro local e o externo volta a valer depois
+	checkOps(t, "class Main { main() : Int { let x : Int <- 1 in { { let x : Int <- 2 in x; }; x; } }; };",
+		"(local $l0 i64)", "(local $l1 i64)",
+		"i64.const 1", "local.set $l0",
+		"i64.const 2", "local.set $l1",
+		"local.get $l1", "drop",
+		"local.get $l0")
+}
+
+func TestIsVoidIntIsFalse(t *testing.T) {
+	// Int nunca e void: o valor sai da pilha e entra falso
+	checkOps(t, "class Main { main() : Int { if isvoid 0 then 1 else 2 fi }; };",
+		"i64.const 0", "drop", "i32.const 0",
+		"(if (result i64)",
+		"(then", "i64.const 1", ")",
+		"(else", "i64.const 2", ")",
+		")")
+}
+
+func TestSelfIsParam(t *testing.T) {
+	checkOps(t, "class Main { main() : Object { self }; };",
+		"local.get $self")
+}
+
+func TestWhileEmission(t *testing.T) {
+	checkOps(t, "class Main { main() : Object { while true loop 1 pool }; };",
+		"(block $w0", "(loop $l0",
+		"i32.const 1", "i32.eqz", "br_if $w0",
+		"i64.const 1", "drop", "br $l0",
+		")", ")",
+		"i32.const 0")
+}
+
+func TestIfMixedBranchesError(t *testing.T) {
+	// join(Int, Bool) e Object: sem boxing o emissor recusa
+	prog, res := parseAndCheck(t, "class Main { main() : Object { if true then 1 else false fi }; };")
+	_, err := Generate(prog, res)
+	if err == nil {
+		t.Fatal("esperava erro para ramos de tipos diferentes")
+	}
+	if !strings.Contains(err.Error(), "ainda nao suportado") {
+		t.Errorf("mensagem inesperada: %v", err)
+	}
+}
+
+func TestAttributeNotYetSupported(t *testing.T) {
+	prog, res := parseAndCheck(t, "class Main { x : Int <- 5; main() : Int { x }; };")
+	_, err := Generate(prog, res)
+	if err == nil {
+		t.Fatal("esperava erro para atributo")
+	}
+	if !strings.Contains(err.Error(), "atributo") {
+		t.Errorf("mensagem inesperada: %v", err)
+	}
+}
