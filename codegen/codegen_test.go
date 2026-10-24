@@ -225,14 +225,13 @@ func TestUnsupportedExpression(t *testing.T) {
 	}
 }
 
-func TestDispatchNotYetSupported(t *testing.T) {
-	prog, res := parseAndCheck(t, "class Main { main() : Object { copy() }; };")
-	_, err := Generate(prog, res)
-	if err == nil {
-		t.Fatal("esperava erro para despacho")
-	}
-	if !strings.Contains(err.Error(), "nao suportada") {
-		t.Errorf("mensagem inesperada: %v", err)
+func TestDispatchCopyViaSelf(t *testing.T) {
+	// copy() com receptor implicito despacha para $Object_copy
+	wat := generate(t, "class Main { main() : Object { copy() }; };")
+	for _, piece := range []string{"call $Object_copy", "(block $done (result i32)"} {
+		if !strings.Contains(wat, piece) {
+			t.Errorf("modulo sem %q", piece)
+		}
 	}
 }
 
@@ -411,4 +410,84 @@ func TestAttrAssign(t *testing.T) {
 		"i32.store offset=8", "local.get $tmp0",
 		"drop",
 		"local.get $self", "i32.load offset=8")
+}
+
+func TestDynamicDispatch(t *testing.T) {
+	// a.tag 7 (Cachorro) chama o override; Gato herdaria o de Animal
+	checkOps(t, `class Animal { valor() : Int { 1 }; };
+class Cachorro inherits Animal { valor() : Int { 2 }; };
+class Gato inherits Animal { };
+class Main { main() : Int { let a : Animal <- new Cachorro in a.valor() }; };`,
+		"(local $tmp0 i32)", "(local $l0 i32)",
+		"call $Cachorro_new", "local.set $l0",
+		"local.get $l0",
+		"local.set $tmp0", "local.get $tmp0", "i32.eqz",
+		"(if (then", "unreachable", "))",
+		"(block $done (result i32)",
+		"local.get $tmp0", "i32.load offset=0", "i32.const 6", "i32.eq",
+		"(if (then", "local.get $tmp0", "call $Animal_valor", "br $done", "))",
+		"local.get $tmp0", "i32.load offset=0", "i32.const 7", "i32.eq",
+		"(if (then", "local.get $tmp0", "call $Cachorro_valor", "br $done", "))",
+		"local.get $tmp0", "i32.load offset=0", "i32.const 8", "i32.eq",
+		"(if (then", "local.get $tmp0", "call $Animal_valor", "br $done", "))",
+		"unreachable", ")")
+}
+
+func TestSelfDispatch(t *testing.T) {
+	checkOps(t, "class Main { f() : Int { 3 }; main() : Int { f() }; };",
+		"(local $tmp0 i32)",
+		"local.get $self",
+		"local.set $tmp0", "local.get $tmp0", "i32.eqz",
+		"(if (then", "unreachable", "))",
+		"(block $done (result i32)",
+		"local.get $tmp0", "i32.load offset=0", "i32.const 6", "i32.eq",
+		"(if (then", "local.get $tmp0", "call $Main_f", "br $done", "))",
+		"unreachable", ")")
+}
+
+func TestStaticDispatch(t *testing.T) {
+	checkOps(t, `class A { f() : Int { 7 }; };
+class B inherits A { };
+class Main { main() : Int { (new B)@A.f() }; };`,
+		"(local $tmp0 i32)",
+		"call $B_new",
+		"local.tee $tmp0", "i32.eqz",
+		"(if (then", "unreachable", "))",
+		"local.get $tmp0", "call $A_f")
+}
+
+func TestBuiltinCopy(t *testing.T) {
+	// copy de Int passa pelo $Object_copy sintetizado
+	checkOps(t, "class Main { main() : Int { let c : Int <- 5 in c.copy() }; };",
+		"(local $tmp0 i32)", "(local $l0 i32)",
+		"i64.const 5", "call $new_int", "local.set $l0",
+		"local.get $l0",
+		"local.set $tmp0", "local.get $tmp0", "i32.eqz",
+		"(if (then", "unreachable", "))",
+		"(block $done (result i32)",
+		"local.get $tmp0", "i32.load offset=0", "i32.const 3", "i32.eq",
+		"(if (then", "local.get $tmp0", "call $Object_copy", "br $done", "))",
+		"unreachable", ")")
+}
+
+func TestStringMethodNotYet(t *testing.T) {
+	prog, res := parseAndCheck(t, "class Main { main() : Object { (new String).length() }; };")
+	_, err := Generate(prog, res)
+	if err == nil {
+		t.Fatal("esperava erro para metodo de String")
+	}
+	if !strings.Contains(err.Error(), "passo 6") {
+		t.Errorf("mensagem inesperada: %v", err)
+	}
+}
+
+func TestTypeNameNotYet(t *testing.T) {
+	prog, res := parseAndCheck(t, "class Main { main() : Object { 1.type_name() }; };")
+	_, err := Generate(prog, res)
+	if err == nil {
+		t.Fatal("esperava erro para type_name")
+	}
+	if !strings.Contains(err.Error(), "passo 7") {
+		t.Errorf("mensagem inesperada: %v", err)
+	}
 }
