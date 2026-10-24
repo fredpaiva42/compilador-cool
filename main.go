@@ -3,8 +3,10 @@ package main
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"cool/ast"
+	"cool/codegen"
 	"cool/lexer"
 	"cool/parser"
 	"cool/semantic"
@@ -12,17 +14,17 @@ import (
 )
 
 func main() {
-	withAST := false
-	fileArg := ""
-	if len(os.Args) >= 3 && os.Args[1] == "--ast" {
-		withAST = true
-		fileArg = os.Args[2]
-	} else if len(os.Args) >= 2 {
-		fileArg = os.Args[1]
-	} else {
-		fmt.Fprintln(os.Stderr, "uso: go run . [--ast] <arquivo.cl>")
+	args := os.Args[1:]
+	flag := ""
+	if len(args) > 0 && strings.HasPrefix(args[0], "--") {
+		flag = args[0]
+		args = args[1:]
+	}
+	if len(args) != 1 {
+		fmt.Fprintln(os.Stderr, "uso: go run . [--ast|--wat] <arquivo.cl>")
 		os.Exit(1)
 	}
+	fileArg := args[0]
 
 	src, err := os.ReadFile(fileArg)
 	if err != nil {
@@ -40,9 +42,9 @@ func main() {
 		}
 	}
 
-	if !withAST {
+	if flag == "" {
 		for _, tok := range toks {
-			fmt.Printf("%d:%d	%-10s	%q\n", tok.Line, tok.Column, tok.Type, tok.Literal)
+			fmt.Printf("%d:%d\t%-10s\t%q\n", tok.Line, tok.Column, tok.Type, tok.Literal)
 		}
 	}
 
@@ -59,13 +61,23 @@ func main() {
 		os.Exit(1)
 	}
 
-	if withAST {
+	if flag == "--ast" {
 		fmt.Println(ast.DumpProgram(prog))
 	}
 
 	if err := semantic.CheckProgram(prog); err != nil {
 		fmt.Fprintf(os.Stderr, "erro semantico: %v\n", err)
 		os.Exit(1)
+	}
+
+	if flag == "--wat" {
+		wat, err := codegen.Gerar(prog)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "erro na geracao: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Print(wat)
+		return
 	}
 
 	fmt.Fprintf(os.Stderr, "OK: %d classe(s)\n", len(prog.Classes))

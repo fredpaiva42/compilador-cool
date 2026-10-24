@@ -2,3 +2,7 @@ cool-lexer
 cool
 
 *.out
+
+runtime/rt.wasm
+runtime/bateria.saida
+build/
