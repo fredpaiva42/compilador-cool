@@ -92,6 +92,7 @@ func TestMinimalModule(t *testing.T) {
 		"(func $Main_main (param $self i32) (result i32)",
 		"(func $String_length (param $self i32) (result i32)",
 		"(func $IO_out_int (param $self i32) (param $x i32) (result i32)",
+		"(func $Object_type_name (param $self i32) (result i32)",
 		"i64.const 42",
 		"call $new_int",
 		`(func (export "_start")`,
@@ -493,15 +494,56 @@ func TestStringLength(t *testing.T) {
 		"unreachable", ")")
 }
 
-func TestTypeNameNotYet(t *testing.T) {
-	prog, res := parseAndCheck(t, "class Main { main() : Object { 1.type_name() }; };")
-	_, err := Generate(prog, res)
-	if err == nil {
-		t.Fatal("esperava erro para type_name")
+func TestTypeName(t *testing.T) {
+	wat := generate(t, "class Main { main() : Object { 1.type_name() }; };")
+	for _, piece := range []string{
+		"(func $Object_type_name (param $self i32) (result i32)",
+		"call $Object_type_name",
+	} {
+		if !strings.Contains(wat, piece) {
+			t.Errorf("modulo sem %q", piece)
+		}
 	}
-	if !strings.Contains(err.Error(), "passo 7") {
-		t.Errorf("mensagem inesperada: %v", err)
+	if !strings.Contains(wat, "Main\")") {
+		t.Error("nome da classe ausente dos dados")
 	}
+}
+
+func TestCaseBindsVar(t *testing.T) {
+	// a variavel do ramo le o temporario do sujeito
+	checkOps(t, `class Main { v : Int <- 9; main() : Object { case self of x : Main => x; esac }; };`,
+		"(local $tmp0 i32)", "(local $c0 i32)",
+		"local.get $self",
+		"local.set $c0", "local.get $c0", "i32.eqz",
+		"(if (then", "unreachable", "))",
+		"(block $done (result i32)",
+		"local.get $c0", "i32.load offset=0", "i32.const 6", "i32.eq",
+		"(if (then",
+		"local.get $c0",
+		"br $done", "))",
+		"unreachable", ")")
+}
+
+func TestCaseFirstMatchInOrder(t *testing.T) {
+	// B conforma com A, entao o primeiro ramo vence
+	checkOps(t, `class A { }; class B inherits A { };
+class Main { main() : Int { case new B of x : A => 1; y : B => 2; esac }; };`,
+		"(local $tmp0 i32)", "(local $c0 i32)",
+		"call $B_new",
+		"local.set $c0", "local.get $c0", "i32.eqz",
+		"(if (then", "unreachable", "))",
+		"(block $done (result i32)",
+		"local.get $c0", "i32.load offset=0", "i32.const 6", "i32.eq",
+		"local.get $c0", "i32.load offset=0", "i32.const 7", "i32.eq",
+		"i32.or",
+		"(if (then",
+		"i64.const 1", "call $new_int",
+		"br $done", "))",
+		"local.get $c0", "i32.load offset=0", "i32.const 7", "i32.eq",
+		"(if (then",
+		"i64.const 2", "call $new_int",
+		"br $done", "))",
+		"unreachable", ")")
 }
 
 func TestStringConcat(t *testing.T) {
