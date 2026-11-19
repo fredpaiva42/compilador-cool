@@ -34,7 +34,7 @@ if (cd runtime && ./testar.sh >/dev/null 2>&1); then ok; else no "runtime/testar
 
 # 5. executar exemplos e comparar a saida
 mkdir -p build
-RUN="minimo arith controle objetos novo vazio despacho estatico proprio ola conta igual caso tipo"
+RUN="minimo arith controle objetos novo vazio despacho estatico proprio ola conta igual caso tipo copia construtor"
 RUN_IN="eco dobro"
 for nome in $RUN $RUN_IN; do
   entrada="/dev/null"

@@ -312,17 +312,36 @@
 
   ;; new_str_empty: String vazia (o passo 6 poe os literais aqui)
   (func $new_str_empty (result i32)
-    (call $obj_new
-      (i32.const 4)
-      (i32.const 12)))
+    (local $p i32)
+    (local.set $p
+      (call $obj_new
+        (i32.const 4)
+        (i32.const 12)))
+    ;; obj_new grava o tamanho em +4; em String esse campo e o comprimento
+    (i32.store offset=4
+      (local.get $p)
+      (i32.const 0))
+    (local.get $p))
 
   ;; copy_obj: copia rasa, que o Object.copy usa no passo 5
   (func $copy_obj (param $src i32) (result i32)
     (local $size i32)
     (local $dst i32)
+    ;; em String +4 e comprimento, nao tamanho: copia cabecalho e bytes
     (local.set $size
-      (i32.load offset=4
-        (local.get $src)))
+      (if (result i32)
+        (i32.eq
+          (i32.load offset=0
+            (local.get $src))
+          (i32.const 4))
+        (then
+          (i32.add
+            (i32.load offset=4
+              (local.get $src))
+            (i32.const 8)))
+        (else
+          (i32.load offset=4
+            (local.get $src)))))
     (local.set $dst
       (call $alloc
         (local.get $size)))

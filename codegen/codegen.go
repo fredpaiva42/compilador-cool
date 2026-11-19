@@ -1147,19 +1147,23 @@ func (e *Emitter) isVoid(n *ast.IsVoid) error {
 }
 
 // start monta a entrada do programa, que o manual define como (new Main).main().
+// $Main_new roda uma vez so: reexecutar rodaria as inicializacoes dos atributos.
 // O resultado de main sai pelo out_int quando e Int e e descartado se nao e.
 func (e *Emitter) start(prog *ast.Program) {
 	e.b.WriteString("\n")
 	e.level = 1
 	e.line(`(func (export "_start")`)
 	e.level = 2
-	e.line("(local $tmp0 i32)")
+	e.line("(local $main i32)")
+	e.line("(local $res i32)")
 	e.line("call $Main_new")
+	e.line("local.set $main")
+	e.line("local.get $main")
 	e.line("call $Main_main")
 	if mainReturnType(prog) == "Int" {
-		e.line("local.set $tmp0")
-		e.line("call $Main_new")
-		e.line("local.get $tmp0")
+		e.line("local.set $res")
+		e.line("local.get $main")
+		e.line("local.get $res")
 		e.line("call $IO_out_int")
 		e.line("drop")
 	} else {
